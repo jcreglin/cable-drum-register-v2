@@ -667,10 +667,11 @@ app.post('/api/allocations/import', requireRole(['admin']), (req, res) => {
         const kpTo = row.kp_to ? parseFloat(row.kp_to) : null;
         const createdOn = row.created_on || new Date().toISOString();
         
-        // Calculate qty_remaining from the drum's current remaining minus this allocation
-        // Get the last allocation's qty_remaining for this drum
+        // Calculate qty_remaining: get the last allocation's qty_remaining and subtract this qty_used
         const lastAlloc = db.prepare('SELECT qty_remaining FROM cable_allocations WHERE drum_id = ? ORDER BY id DESC LIMIT 1').get(drum.id);
-        const prevRemaining = lastAlloc ? (lastAlloc.qty_remaining || 0) : 0;
+        // If no previous allocation, use opening_entry_length from the drum
+        const drumData = db.prepare('SELECT opening_entry_length FROM cable_drums WHERE id = ?').get(drum.id);
+        const prevRemaining = lastAlloc ? (lastAlloc.qty_remaining || 0) : (drumData ? (drumData.opening_entry_length || 0) : 0);
         const qtyRemaining = prevRemaining - qtyUsed;
         
         db.prepare('INSERT INTO cable_allocations (drum_id, project_allocation, qty_used, qty_remaining, used_by, comments, kp_from, kp_to, created_on) VALUES (?,?,?,?,?,?,?,?,?)').run(
