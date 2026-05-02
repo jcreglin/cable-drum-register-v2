@@ -1584,11 +1584,17 @@ function showDrumList() {
       if (!confirm('This is your LAST CHANCE. All drum data will be permanently deleted. Continue?')) return;
       try {
         const r = await call('/api/master-delete', { method: 'POST' });
-        if (r.success) {
-          alert('All data deleted successfully. Users preserved.');
+        if (r && r.success) {
+          let summary = 'All data deleted successfully. Users preserved.\n\n';
+          if (r.deleted) {
+            Object.entries(r.deleted).forEach(([table, count]) => {
+              summary += table + ': ' + count + ' rows\n';
+            });
+          }
+          alert(summary);
           loadAll();
         } else {
-          alert('Error: ' + (r.error || 'Unknown error'));
+          alert('Error: ' + (r && r.error ? r.error : JSON.stringify(r)));
         }
       } catch(e) { alert('Error: ' + e.message); }
     }

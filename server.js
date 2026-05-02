@@ -563,19 +563,40 @@ app.post('/api/drums/import', requireRole(['admin']), (req, res) => {
 // Master delete - deletes all data except users
 app.post('/api/master-delete', requireRole(['admin']), (req, res) => {
   try {
-    const tables = ['cable_drums', 'cable_allocations', 'clients', 'drum_owners', 'cable_types', 'cable_counts', 'categories', 'sheath_colours', 'manufacturers', 'projects', 'warehouses', 'user_client_access', 'user_owner_access'];
     const counts = {};
+    // Delete in order: allocations first (references drums), then drums, then lookups
+    const tables = [
+      'cable_allocations',
+      'cable_drums',
+      'user_client_access',
+      'user_owner_access',
+      'clients',
+      'drum_owners',
+      'cable_types',
+      'cable_counts',
+      'categories',
+      'sheath_colours',
+      'manufacturers',
+      'projects',
+      'warehouses'
+    ];
     tables.forEach(t => {
       try {
-        const count = db.prepare('SELECT COUNT(*) as c FROM ' + t).get().c;
-        db.exec('DELETE FROM ' + t);
+        const info = db.prepare('SELECT COUNT(*) as c FROM ' + t).get();
+        const count = info ? info.c : 0;
+        db.prepare('DELETE FROM ' + t).run();
         counts[t] = count;
-      } catch(e) { counts[t] = 'error: ' + e.message; }
+        console.log('Deleted ' + count + ' rows from ' + t);
+      } catch(e) {
+        console.error('Error deleting ' + t + ':', e.message);
+        counts[t] = 'error: ' + e.message;
+      }
     });
+    console.log('Master delete complete:', counts);
     res.json({ success: true, deleted: counts });
   } catch(e) {
     console.error('Master delete error:', e.message);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ success: false, error: e.message });
   }
 });
 
