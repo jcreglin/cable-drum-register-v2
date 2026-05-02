@@ -560,6 +560,48 @@ app.post('/api/drums/import', requireRole(['admin']), (req, res) => {
   }
 });
 
+// Database backup - download the entire SQLite file
+app.get('/api/backup', requireRole(['admin']), (req, res) => {
+  try {
+    const fs = require('fs');
+    const dbFile = dbPath;
+    if (!fs.existsSync(dbFile)) return res.status(404).json({ error: 'Database file not found' });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    res.setHeader('Content-Disposition', 'attachment; filename=cabledrums-backup-' + timestamp + '.db');
+    res.setHeader('Content-Type', 'application/octet-stream');
+    const stream = fs.createReadStream(dbFile);
+    stream.pipe(res);
+  } catch(e) {
+    console.error('Backup error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Database restore - upload a SQLite file to replace the database
+app.post('/api/restore', requireRole(['admin']), (req, res) => {
+  try {
+    const fs = require('fs');
+    const { data } = req.body;
+    if (!data) return res.status(400).json({ error: 'No database data provided' });
+    // data is base64 encoded
+    const buffer = Buffer.from(data, 'base64');
+    // Verify it's a SQLite file
+    if (buffer.length < 16 || buffer.toString('utf8', 0, 15) !== 'SQLite format 3') {
+      return res.status(400).json({ error: 'Invalid SQLite file' });
+    }
+    // Close current db, write new file, reopen
+    db.close();
+    fs.writeFileSync(dbPath, buffer);
+    // Reopen - need to reassign but can't reassign const, so restart is needed
+    res.json({ success: true, message: 'Database restored. The server will restart to apply changes.' });
+    // Exit so the container restarts
+    setTimeout(() => process.exit(0), 1000);
+  } catch(e) {
+    console.error('Restore error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Master delete - deletes all data except users
 app.post('/api/master-delete', requireRole(['admin']), (req, res) => {
   try {

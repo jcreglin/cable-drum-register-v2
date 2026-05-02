@@ -128,6 +128,9 @@
           <button onclick="openModal()" style="margin-left:auto;">+ Add Drum</button>
           <button onclick="openImportModal()" id="importBtn" style="display:none;">📥 Bulk Import</button>
           <button onclick="masterDelete()" id="masterDeleteBtn" class="danger" style="display:none;">🗑️ Master Delete</button>
+          <button onclick="backupDatabase()" id="backupBtn" class="success" style="display:none;">💾 Backup DB</button>
+          <button onclick="document.getElementById('restoreFile').click()" id="restoreBtn" style="display:none;">📤 Restore DB</button>
+          <input type="file" id="restoreFile" accept=".db" style="display:none;" onchange="restoreDatabase()">
         </div>
         <div class="filters">
           <select id="filterClient" onchange="loadDrums()"><option value="">All Clients</option></select>
@@ -1512,6 +1515,8 @@ function showDrumList() {
               document.getElementById('usersTabBtn').style.display = 'inline-block';
               document.getElementById('importBtn').style.display = 'inline-block';
               document.getElementById('masterDeleteBtn').style.display = 'inline-block';
+              document.getElementById('backupBtn').style.display = 'inline-block';
+              document.getElementById('restoreBtn').style.display = 'inline-block';
             }
             // Apply role-based UI controls
             applyRolePermissions();
@@ -1579,6 +1584,48 @@ function showDrumList() {
 
     let importPreviewData = null;
     
+    async function backupDatabase() {
+      try {
+        const r = await fetch('/api/backup', { headers: { 'Authorization': token || '' } });
+        if (!r.ok) { alert('Backup failed'); return; }
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'cabledrums-backup-' + new Date().toISOString().slice(0,19).replace(/[:.]/g,'-') + '.db';
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch(e) { alert('Backup error: ' + e.message); }
+    }
+
+    async function restoreDatabase() {
+      const file = document.getElementById('restoreFile').files[0];
+      if (!file) return;
+      if (!confirm('⚠️ This will REPLACE the entire database with the uploaded file.\n\nAll current data will be overwritten.\n\nContinue?')) {
+        document.getElementById('restoreFile').value = '';
+        return;
+      }
+      try {
+        const reader = new FileReader();
+        reader.onload = async function() {
+          const base64 = reader.result.split(',')[1];
+          const resp = await call('/api/restore', {
+            method: 'POST',
+            body: JSON.stringify({ data: base64 })
+          });
+          const r = await resp.json();
+          if (r.success) {
+            alert('Database restored! Page will reload.');
+            setTimeout(() => location.reload(), 2000);
+          } else {
+            alert('Restore failed: ' + (r.error || 'Unknown error'));
+          }
+        };
+        reader.readAsDataURL(file);
+      } catch(e) { alert('Restore error: ' + e.message); }
+      document.getElementById('restoreFile').value = '';
+    }
+
     async function masterDelete() {
       if (!confirm('⚠️ WARNING: This will delete ALL drums, allocations, and lookup data.\n\nUsers will NOT be deleted.\n\nAre you sure?')) return;
       if (!confirm('This is your LAST CHANCE. All drum data will be permanently deleted. Continue?')) return;
@@ -1733,6 +1780,8 @@ function showDrumList() {
             if (d.user.role === 'admin') {
               document.getElementById('importBtn').style.display = 'inline-block';
               document.getElementById('masterDeleteBtn').style.display = 'inline-block';
+              document.getElementById('backupBtn').style.display = 'inline-block';
+              document.getElementById('restoreBtn').style.display = 'inline-block';
             }
             loadAll();
             return;
