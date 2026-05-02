@@ -101,12 +101,13 @@
     
     <div class="stats" style="display:flex;justify-content:space-between;align-items:center;background:#fff;border:1px solid #ddd;border-radius:8px;padding:15px 20px;margin-bottom:20px;">
       <div style="display:flex;align-items:center;gap:20px;">
-        <div><span style="font-size:12px;color:#888;">Total Drums</span><br><strong id="totalDrums" style="font-size:24px;">0</strong></div>
+        <div><span style="font-size:12px;color:#888;">Filtered</span><br><strong id="filteredDrums" style="font-size:24px;color:#2563eb;">0</strong></div>
+        <div style="border-left:1px solid #eee;padding-left:20px;"><span style="font-size:12px;color:#888;">Total Drums</span><br><strong id="totalDrums" style="font-size:24px;">0</strong></div>
         <div style="border-left:1px solid #eee;padding-left:20px;"><span style="font-size:12px;color:#888;">Active</span><br><strong id="activeDrums" style="font-size:24px;">0</strong></div>
         <div style="border-left:1px solid #eee;padding-left:20px;"><span style="font-size:12px;color:#888;">Signed Out</span><br><strong id="signedDrums" style="font-size:24px;">0</strong></div>
       </div>
       <div style="display:flex;align-items:center;gap:20px;">
-        <div><span style="font-size:12px;color:#888;">Total Value</span><br><strong id="totalValue" style="font-size:24px;">$0</strong></div>
+        <div><span style="font-size:12px;color:#888;">Filtered Value</span><br><strong id="totalValue" style="font-size:24px;">$0</strong></div>
         <div style="border-left:1px solid #eee;padding-left:20px;"><span style="font-size:12px;color:#888;">Warehouses</span><br><strong id="totalWarehouses" style="font-size:24px;">0</strong></div>
       </div>
     </div>
@@ -600,6 +601,8 @@
       loadDrums();
     }
     
+    let currentFilterParams = '';
+
     async function loadDrums() {
       const params = new URLSearchParams();
       if (document.getElementById('filterClient').value) params.set('client', document.getElementById('filterClient').value);
@@ -615,7 +618,18 @@
       params.set('sort', currentSort.column);
       params.set('order', currentSort.direction);
       
+      currentFilterParams = params.toString();
       const drums = await (await call('/api/drums?' + params)).json();
+
+      // Update filtered count and value
+      document.getElementById('filteredDrums').textContent = drums.length;
+      const filteredValue = drums.reduce((sum, d) => {
+        const remaining = parseFloat(d.remaining_length) || 0;
+        const price = parseFloat(d.price_per_meter) || 0;
+        return sum + (remaining * price);
+      }, 0);
+      document.getElementById('totalValue').textContent = '$' + filteredValue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
       document.getElementById('drumsList').innerHTML = drums.map(d => `
         <tr onclick="viewDrum(${d.id})" style="cursor:pointer;">
           <td>${d.drum_number || '-'}</td>
@@ -1554,7 +1568,7 @@ function showDrumList() {
 
     async function exportDrums() {
       try {
-        const r = await call('/api/drums/export');
+        const r = await call('/api/drums/export?' + currentFilterParams);
         if (!r.ok) throw new Error('Export failed');
         const blob = await r.blob();
         const url = window.URL.createObjectURL(blob);

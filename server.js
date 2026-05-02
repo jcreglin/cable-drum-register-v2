@@ -386,7 +386,20 @@ app.get('/api/drums', requireAuth, (req, res) => {
 // Export drums as CSV
 app.get('/api/drums/export', requireAuth, (req, res) => {
   try {
-    const drums = db.prepare('SELECT * FROM cable_drums ORDER BY drum_number').all();
+    // Apply same filters as the drums list
+    let sql = 'SELECT * FROM cable_drums WHERE 1=1';
+    const filterParams = [];
+    const filters = ['client', 'drum_owner', 'cable_type', 'cable_count', 'sheath_colour', 'type', 'status', 'sign_status', 'warehouse', 'project_allocation'];
+    filters.forEach(f => {
+      if (req.query[f]) { sql += ' AND ' + f + ' = ?'; filterParams.push(req.query[f]); }
+    });
+    if (req.query.search) {
+      sql += ' AND (drum_number LIKE ? OR comments LIKE ? OR project_allocation LIKE ?)';
+      const s = '%' + req.query.search + '%';
+      filterParams.push(s, s, s);
+    }
+    sql += ' ORDER BY drum_number';
+    const drums = db.prepare(sql).all(...filterParams);
     
     const headers = ['drum_number', 'client', 'drum_owner', 'cable_type', 'cable_count', 'sheath_colour', 'type', 'inner_end_reading', 'outer_end_reading', 'opening_entry_length', 'remaining_length', 'price_per_meter', 'value_on_hand', 'audit_date', 'audit_by', 'status', 'sign_status', 'sign_out_to', 'sign_out_date', 'sign_in_date', 'project_allocation', 'project_drum_number', 'batch_number', 'manufacturer', 'manufacture_date', 'status_reason', 'comments', 'warehouse', 'warehouse_location', 'created_on', 'updated_on'];
     const csvRows = [headers.join(',')];
