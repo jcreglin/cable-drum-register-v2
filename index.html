@@ -111,10 +111,19 @@
       </div>
     </div>
 
-    <div class="tabs">
-      <button class="tab active" onclick="showTab('drums')">🥁 Drums</button>
-      <button class="tab" onclick="showTab('projects')">📋 Projects</button>
-      <button class="tab" onclick="showTab('settings')">⚙️ Settings</button>
+    <div class="tabs" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;">
+      <div>
+        <button class="tab active" onclick="showTab('drums')">🥁 Drums</button>
+        <button class="tab" onclick="showTab('projects')">📋 Projects</button>
+        <button class="tab" onclick="showTab('settings')">⚙️ Settings</button>
+      </div>
+      <div style="display:flex;gap:5px;align-items:center;">
+        <button onclick="openImportModal()" id="importBtn" class="small" style="display:none;">📥 Bulk Import</button>
+        <button onclick="masterDelete()" id="masterDeleteBtn" class="danger small" style="display:none;">🗑️ Master Delete</button>
+        <button onclick="backupDatabase()" id="backupBtn" class="success small" style="display:none;">💾 Backup DB</button>
+        <button onclick="document.getElementById('restoreFile').click()" id="restoreBtn" class="small" style="display:none;">📤 Restore DB</button>
+        <input type="file" id="restoreFile" accept=".db" style="display:none;" onchange="restoreDatabase()">
+      </div>
     </div>
 
     <div id="drums" class="tab-content show">
@@ -126,11 +135,7 @@
           <button class="filter-btn" onclick="setStatusFilter('', this)">All</button>
           <button onclick="exportDrums()">📤 Export</button>
           <button onclick="openModal()" style="margin-left:auto;">+ Add Drum</button>
-          <button onclick="openImportModal()" id="importBtn" style="display:none;">📥 Bulk Import</button>
-          <button onclick="masterDelete()" id="masterDeleteBtn" class="danger" style="display:none;">🗑️ Master Delete</button>
-          <button onclick="backupDatabase()" id="backupBtn" class="success" style="display:none;">💾 Backup DB</button>
-          <button onclick="document.getElementById('restoreFile').click()" id="restoreBtn" style="display:none;">📤 Restore DB</button>
-          <input type="file" id="restoreFile" accept=".db" style="display:none;" onchange="restoreDatabase()">
+
         </div>
         <div class="filters">
           <select id="filterClient" onchange="loadDrums()"><option value="">All Clients</option></select>
