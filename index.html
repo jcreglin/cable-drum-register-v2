@@ -127,6 +127,7 @@
           <button onclick="exportDrums()">📤 Export</button>
           <button onclick="openModal()" style="margin-left:auto;">+ Add Drum</button>
           <button onclick="openImportModal()" id="importBtn" style="display:none;">📥 Bulk Import</button>
+          <button onclick="masterDelete()" id="masterDeleteBtn" class="danger" style="display:none;">🗑️ Master Delete</button>
         </div>
         <div class="filters">
           <select id="filterClient" onchange="loadDrums()"><option value="">All Clients</option></select>
@@ -1510,6 +1511,7 @@ function showDrumList() {
             if (currentUserRole === 'admin') {
               document.getElementById('usersTabBtn').style.display = 'inline-block';
               document.getElementById('importBtn').style.display = 'inline-block';
+              document.getElementById('masterDeleteBtn').style.display = 'inline-block';
             }
             // Apply role-based UI controls
             applyRolePermissions();
@@ -1577,6 +1579,20 @@ function showDrumList() {
 
     let importPreviewData = null;
     
+    async function masterDelete() {
+      if (!confirm('⚠️ WARNING: This will delete ALL drums, allocations, and lookup data.\n\nUsers will NOT be deleted.\n\nAre you sure?')) return;
+      if (!confirm('This is your LAST CHANCE. All drum data will be permanently deleted. Continue?')) return;
+      try {
+        const r = await call('/api/master-delete', { method: 'POST' });
+        if (r.success) {
+          alert('All data deleted successfully. Users preserved.');
+          loadAll();
+        } else {
+          alert('Error: ' + (r.error || 'Unknown error'));
+        }
+      } catch(e) { alert('Error: ' + e.message); }
+    }
+
     function openImportModal() {
       document.getElementById('importCsv').value = '';
       document.getElementById('importStep1').style.display = 'block';
@@ -1709,6 +1725,7 @@ function showDrumList() {
             document.getElementById('mainApp').classList.remove('hidden');
             if (d.user.role === 'admin') {
               document.getElementById('importBtn').style.display = 'inline-block';
+              document.getElementById('masterDeleteBtn').style.display = 'inline-block';
             }
             loadAll();
             return;

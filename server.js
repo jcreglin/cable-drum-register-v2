@@ -425,6 +425,31 @@ const ensureLookupValue = (table, value) => {
 };
 
 
+// CSV parser that handles quoted fields with commas
+function parseCsvLine(line) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && i + 1 < line.length && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (ch === ',' && !inQuotes) {
+      result.push(current.trim());
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  result.push(current.trim());
+  return result;
+}
+
 // Bulk import preview endpoint
 app.post('/api/drums/import-preview', requireRole(['admin']), (req, res) => {
   try {
@@ -434,11 +459,11 @@ app.post('/api/drums/import-preview', requireRole(['admin']), (req, res) => {
     const lines = csv.trim().split('\n');
     if (lines.length < 2) return res.status(400).json({ error: 'CSV must have header and at least one data row' });
     
-    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+    const headers = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase());
     const preview = [];
     
     for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(',').map(v => v.trim());
+      const values = parseCsvLine(lines[i]);
       const row = {};
       headers.forEach((h, idx) => { row[h] = values[idx] || ''; });
       
@@ -471,12 +496,12 @@ app.post('/api/drums/import', requireRole(['admin']), (req, res) => {
     const lines = csv.trim().split('\n');
     if (lines.length < 2) return res.status(400).json({ error: 'CSV must have header and at least one data row' });
     
-    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+    const headers = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase());
     const results = { imported: 0, duplicates: [], errors: [] };
     
     for (let i = 1; i < lines.length; i++) {
       try {
-        const values = lines[i].split(',').map(v => v.trim());
+        const values = parseCsvLine(lines[i]);
         const row = {};
         headers.forEach((h, idx) => { row[h] = values[idx] || ''; });
         
@@ -501,10 +526,10 @@ app.post('/api/drums/import', requireRole(['admin']), (req, res) => {
         const category = ensureLookupValue('categories', row.type);
         const manufacturer = ensureLookupValue('manufacturers', row.manufacturer);
         
-        const inner = parseFloat(row.inner_end_reading) || 0;
-        const outer = parseFloat(row.outer_end_reading) || 0;
-        const openingLength = Math.abs(outer - inner);
-        const remainingLength = Math.abs(outer - inner);
+        const inner = row.inner_end_reading !== '' ? parseFloat(row.inner_end_reading) : null;
+        const outer = row.outer_end_reading !== '' ? parseFloat(row.outer_end_reading) : null;
+        const openingLength = row.opening_entry_length !== '' ? parseFloat(row.opening_entry_length) : (inner !== null && outer !== null ? Math.abs(outer - inner) : null);
+        const remainingLength = row.remaining_length !== '' ? parseFloat(row.remaining_length) : openingLength;
         
         db.prepare(`INSERT INTO cable_drums (
           drum_number, client, drum_owner, cable_type, cable_count, sheath_colour, type,
@@ -516,7 +541,7 @@ app.post('/api/drums/import', requireRole(['admin']), (req, res) => {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`).run(
           row.drum_number, client, drumOwner, cableType, cableCount, sheathColour, category,
           inner, outer, openingLength, remainingLength,
-          parseFloat(row.price_per_meter) || 0, parseFloat(row.value_on_hand) || 0,
+          row.price_per_meter !== '' ? parseFloat(row.price_per_meter) : null, row.value_on_hand !== '' ? parseFloat(row.value_on_hand) : null,
           row.audit_date, row.audit_by, row.status || 'Active', row.sign_status || 'Signed In',
           row.sign_out_to, row.sign_out_date, row.sign_in_date, project, row.project_drum_number,
           row.batch_number, manufacturer, row.manufacture_date, row.status_reason, row.comments,
@@ -531,6 +556,25 @@ app.post('/api/drums/import', requireRole(['admin']), (req, res) => {
     res.json(results);
   } catch(e) {
     console.error('Import error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Master delete - deletes all data except users
+app.post('/api/master-delete', requireRole(['admin']), (req, res) => {
+  try {
+    const tables = ['cable_drums', 'cable_allocations', 'clients', 'drum_owners', 'cable_types', 'cable_counts', 'categories', 'sheath_colours', 'manufacturers', 'projects', 'warehouses', 'user_client_access', 'user_owner_access'];
+    const counts = {};
+    tables.forEach(t => {
+      try {
+        const count = db.prepare('SELECT COUNT(*) as c FROM ' + t).get().c;
+        db.exec('DELETE FROM ' + t);
+        counts[t] = count;
+      } catch(e) { counts[t] = 'error: ' + e.message; }
+    });
+    res.json({ success: true, deleted: counts });
+  } catch(e) {
+    console.error('Master delete error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
