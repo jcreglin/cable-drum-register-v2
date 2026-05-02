@@ -566,7 +566,7 @@ app.post('/api/drums/import', requireRole(['admin']), (req, res) => {
         const insertedId = db.prepare('SELECT id FROM cable_drums WHERE drum_number = ? ORDER BY id DESC LIMIT 1').get(row.drum_number);
         if (insertedId) {
           db.prepare('INSERT INTO cable_allocations (drum_id, project_allocation, qty_used, qty_remaining, used_by, comments, created_on) VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)').run(
-            insertedId.id, project || null, 0, remainingLength, 'Import', 'Opening Entry'
+            insertedId.id, project || null, 0, openingLength, 'Import', 'Opening Entry'
           );
         }
 
