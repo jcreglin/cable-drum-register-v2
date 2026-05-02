@@ -561,6 +561,15 @@ app.post('/api/drums/import', requireRole(['admin']), (req, res) => {
           row.batch_number, manufacturer, row.manufacture_date, row.status_reason, row.comments,
           warehouse, row.warehouse_location
         );
+
+        // Create opening allocation for the imported drum
+        const insertedId = db.prepare('SELECT id FROM cable_drums WHERE drum_number = ? ORDER BY id DESC LIMIT 1').get(row.drum_number);
+        if (insertedId) {
+          db.prepare('INSERT INTO cable_allocations (drum_id, project_allocation, qty_used, qty_remaining, used_by, comments, created_on) VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)').run(
+            insertedId.id, project || null, 0, remainingLength, 'Import', 'Opening Entry'
+          );
+        }
+
         results.imported++;
       } catch(rowErr) {
         results.errors.push({ row: i + 1, error: rowErr.message });
