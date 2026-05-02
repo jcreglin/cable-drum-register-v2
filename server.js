@@ -541,8 +541,9 @@ app.post('/api/drums/import', requireRole(['admin']), (req, res) => {
         
         const inner = row.inner_end_reading !== '' ? parseFloat(row.inner_end_reading) : null;
         const outer = row.outer_end_reading !== '' ? parseFloat(row.outer_end_reading) : null;
-        const openingLength = row.opening_entry_length !== '' ? parseFloat(row.opening_entry_length) : (inner !== null && outer !== null ? Math.abs(outer - inner) : null);
-        const remainingLength = row.remaining_length !== '' ? parseFloat(row.remaining_length) : openingLength;
+        const calculated = (inner !== null && outer !== null) ? Math.abs(outer - inner) : null;
+        const openingLength = row.opening_entry_length !== '' ? parseFloat(row.opening_entry_length) : calculated;
+        const remainingLength = calculated;
         
         db.prepare(`INSERT INTO cable_drums (
           drum_number, client, drum_owner, cable_type, cable_count, sheath_colour, type,
