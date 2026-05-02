@@ -1583,7 +1583,8 @@ function showDrumList() {
       if (!confirm('⚠️ WARNING: This will delete ALL drums, allocations, and lookup data.\n\nUsers will NOT be deleted.\n\nAre you sure?')) return;
       if (!confirm('This is your LAST CHANCE. All drum data will be permanently deleted. Continue?')) return;
       try {
-        const r = await call('/api/master-delete', { method: 'POST' });
+        const resp = await call('/api/master-delete', { method: 'POST' });
+        const r = await resp.json();
         if (r && r.success) {
           let summary = 'All data deleted successfully. Users preserved.\n\n';
           if (r.deleted) {
