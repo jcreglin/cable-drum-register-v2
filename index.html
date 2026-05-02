@@ -1612,8 +1612,9 @@ function showDrumList() {
         <div style="background:white;padding:30px;border-radius:8px;max-width:600px;width:90%;max-height:80vh;overflow:auto;">
           <h3>Import Allocations (CSV)</h3>
           <p style="font-size:13px;color:#666;">Columns: cable_drum, project_allocation, qty_used, used_by, comments, created_on, kp_from, kp_to</p>
-          <label><input type="checkbox" id="allocSkipOpening" checked> Skip "Opening Entry" rows</label>
-          <textarea id="allocCsvData" rows="10" style="width:100%;margin:10px 0;font-size:12px;" placeholder="Paste CSV data here..."></textarea>
+          <label style="display:flex;align-items:center;gap:6px;margin:10px 0;"><input type="checkbox" id="allocSkipOpening" checked> Skip "Opening Entry" rows</label>
+          <div style="margin:10px 0;"><label style="font-size:13px;">Upload CSV file:</label><br><input type="file" id="allocCsvFile" accept=".csv" onchange="loadAllocCsvFile()" style="margin-top:5px;"></div>
+          <textarea id="allocCsvData" rows="10" style="width:100%;margin:10px 0;font-size:12px;" placeholder="Or paste CSV data here..."></textarea>
           <div style="display:flex;gap:10px;">
             <button onclick="importAllocations()">Import</button>
             <button onclick="this.closest('div[style]').remove()" class="secondary">Cancel</button>
@@ -1621,6 +1622,14 @@ function showDrumList() {
         </div>
       `;
       document.body.appendChild(modal);
+    }
+
+    function loadAllocCsvFile() {
+      const file = document.getElementById('allocCsvFile').files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function() { document.getElementById('allocCsvData').value = reader.result; };
+      reader.readAsText(file);
     }
 
     async function importAllocations() {
