@@ -625,6 +625,74 @@ app.post('/api/restore', requireRole(['admin']), (req, res) => {
   }
 });
 
+// Allocation import endpoint
+app.post('/api/allocations/import', requireRole(['admin']), (req, res) => {
+  try {
+    const { csv, skipOpeningEntries } = req.body;
+    if (!csv) return res.status(400).json({ error: 'No CSV data provided' });
+    
+    const lines = csv.trim().split('\n');
+    if (lines.length < 2) return res.status(400).json({ error: 'CSV must have header and at least one data row' });
+    
+    const headers = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase().replace(/ /g, '_'));
+    const results = { imported: 0, skipped: 0, errors: [] };
+    
+    for (let i = 1; i < lines.length; i++) {
+      try {
+        const values = parseCsvLine(lines[i]);
+        const row = {};
+        headers.forEach((h, idx) => { row[h] = (values[idx] || '').trim(); });
+        
+        // Map column names
+        const drumNumber = row.cable_drum || row.drum_number || '';
+        const comments = row.comments || '';
+        
+        // Skip opening entries if requested
+        if (skipOpeningEntries && comments.toLowerCase().includes('opening entry')) {
+          results.skipped++;
+          continue;
+        }
+        
+        // Find drum by number
+        const drum = db.prepare('SELECT id FROM cable_drums WHERE drum_number = ?').get(drumNumber);
+        if (!drum) {
+          results.errors.push('Row ' + (i+1) + ': Drum not found: ' + drumNumber);
+          continue;
+        }
+        
+        const project = row.project_allocation || null;
+        const qtyUsed = row.qty_used ? parseFloat(row.qty_used) : 0;
+        const usedBy = row.used_by || null;
+        const kpFrom = row.kp_from ? parseFloat(row.kp_from) : null;
+        const kpTo = row.kp_to ? parseFloat(row.kp_to) : null;
+        const createdOn = row.created_on || new Date().toISOString();
+        
+        // Calculate qty_remaining from the drum's current remaining minus this allocation
+        // Get the last allocation's qty_remaining for this drum
+        const lastAlloc = db.prepare('SELECT qty_remaining FROM cable_allocations WHERE drum_id = ? ORDER BY id DESC LIMIT 1').get(drum.id);
+        const prevRemaining = lastAlloc ? (lastAlloc.qty_remaining || 0) : 0;
+        const qtyRemaining = prevRemaining - qtyUsed;
+        
+        db.prepare('INSERT INTO cable_allocations (drum_id, project_allocation, qty_used, qty_remaining, used_by, comments, kp_from, kp_to, created_on) VALUES (?,?,?,?,?,?,?,?,?)').run(
+          drum.id, project, qtyUsed, qtyRemaining, usedBy, comments, kpFrom, kpTo, createdOn
+        );
+        
+        // Update drum's remaining_length
+        db.prepare('UPDATE cable_drums SET remaining_length = ? WHERE id = ?').run(qtyRemaining, drum.id);
+        
+        results.imported++;
+      } catch(e) {
+        results.errors.push('Row ' + (i+1) + ': ' + e.message);
+      }
+    }
+    
+    res.json({ success: true, results });
+  } catch(e) {
+    console.error('Allocation import error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Master delete - deletes all data except users
 app.post('/api/master-delete', requireRole(['admin']), (req, res) => {
   try {

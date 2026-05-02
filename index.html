@@ -119,7 +119,8 @@
         <button class="tab" onclick="showTab('settings')">⚙️ Settings</button>
       </div>
       <div style="display:flex;gap:5px;align-items:center;">
-        <button onclick="openImportModal()" id="importBtn" class="small" style="display:none;">📥 Bulk Import</button>
+        <button onclick="openImportModal()" id="importBtn" class="small" style="display:none;">📥 Import Drums</button>
+        <button onclick="openAllocImportModal()" id="allocImportBtn" class="small" style="display:none;">📥 Import Allocations</button>
         <button onclick="masterDelete()" id="masterDeleteBtn" class="danger small" style="display:none;">🗑️ Master Delete</button>
         <button onclick="backupDatabase()" id="backupBtn" class="success small" style="display:none;">💾 Backup DB</button>
         <button onclick="document.getElementById('restoreFile').click()" id="restoreBtn" class="small" style="display:none;">📤 Restore DB</button>
@@ -1533,6 +1534,7 @@ function showDrumList() {
             if (currentUserRole === 'admin') {
               document.getElementById('usersTabBtn').style.display = 'inline-block';
               document.getElementById('importBtn').style.display = 'inline-block';
+              document.getElementById('allocImportBtn').style.display = 'inline-block';
               document.getElementById('masterDeleteBtn').style.display = 'inline-block';
               document.getElementById('backupBtn').style.display = 'inline-block';
               document.getElementById('restoreBtn').style.display = 'inline-block';
@@ -1603,6 +1605,46 @@ function showDrumList() {
 
     let importPreviewData = null;
     
+    function openAllocImportModal() {
+      const modal = document.createElement('div');
+      modal.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:1000;';
+      modal.innerHTML = `
+        <div style="background:white;padding:30px;border-radius:8px;max-width:600px;width:90%;max-height:80vh;overflow:auto;">
+          <h3>Import Allocations (CSV)</h3>
+          <p style="font-size:13px;color:#666;">Columns: cable_drum, project_allocation, qty_used, used_by, comments, created_on, kp_from, kp_to</p>
+          <label><input type="checkbox" id="allocSkipOpening" checked> Skip "Opening Entry" rows</label>
+          <textarea id="allocCsvData" rows="10" style="width:100%;margin:10px 0;font-size:12px;" placeholder="Paste CSV data here..."></textarea>
+          <div style="display:flex;gap:10px;">
+            <button onclick="importAllocations()">Import</button>
+            <button onclick="this.closest('div[style]').remove()" class="secondary">Cancel</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    async function importAllocations() {
+      const csv = document.getElementById('allocCsvData').value;
+      const skipOpening = document.getElementById('allocSkipOpening').checked;
+      if (!csv.trim()) { alert('No data'); return; }
+      try {
+        const resp = await call('/api/allocations/import', {
+          method: 'POST',
+          body: JSON.stringify({ csv, skipOpeningEntries: skipOpening })
+        });
+        const r = await resp.json();
+        if (r.success) {
+          let msg = 'Imported: ' + r.results.imported + '\nSkipped: ' + r.results.skipped;
+          if (r.results.errors.length > 0) msg += '\nErrors (' + r.results.errors.length + '):\n' + r.results.errors.slice(0, 10).join('\n');
+          alert(msg);
+          document.querySelector('div[style*="position:fixed"]').remove();
+          loadAll();
+        } else {
+          alert('Error: ' + (r.error || JSON.stringify(r)));
+        }
+      } catch(e) { alert('Error: ' + e.message); }
+    }
+
     async function backupDatabase() {
       try {
         const r = await fetch('/api/backup', { headers: { 'Authorization': token || '' } });
@@ -1798,6 +1840,7 @@ function showDrumList() {
             document.getElementById('mainApp').classList.remove('hidden');
             if (d.user.role === 'admin') {
               document.getElementById('importBtn').style.display = 'inline-block';
+              document.getElementById('allocImportBtn').style.display = 'inline-block';
               document.getElementById('masterDeleteBtn').style.display = 'inline-block';
               document.getElementById('backupBtn').style.display = 'inline-block';
               document.getElementById('restoreBtn').style.display = 'inline-block';
