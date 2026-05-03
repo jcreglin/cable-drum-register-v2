@@ -118,6 +118,15 @@ const ROLES = {
   client: { canCreate: false, canEdit: false, canDelete: false, canAddAllocation: false, canManageUsers: false, canView: true }
 };
 
+// Get user's full name, fallback to username
+function getUserFullName(username) {
+  try {
+    const u = db.prepare('SELECT first_name, last_name FROM users WHERE username = ?').get(username);
+    const name = [u?.first_name, u?.last_name].filter(Boolean).join(' ');
+    return name || username;
+  } catch(e) { return username; }
+}
+
 // Get effective permissions for a user (base role + overrides)
 function getEffectivePermissions(user) {
   const base = { ...ROLES[user.role] || ROLES.client };
@@ -823,7 +832,7 @@ app.put('/api/drums/:id', requireAuth, (req, res) => {
       const now = new Date();
       const melbourneTime = now.toLocaleString('en-AU', { timeZone: 'Australia/Melbourne', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).replace(/(\d{2})\/(\d{2})\/(\d{4}), (.*)/, '$3-$2-$1 $4');
       db.prepare('INSERT INTO cable_allocations (drum_id, project_allocation, qty_used, qty_remaining, used_by, comments, created_on) VALUES (?,?,?,?,?,?,?)').run(
-        req.params.id, null, null, newRemaining, req.user.username, 'Adjusted (Audit)', melbourneTime);
+        req.params.id, null, null, newRemaining, getUserFullName(req.user.username), 'Adjusted (Audit)', melbourneTime);
     }
     
     res.json({ success: true });
@@ -989,7 +998,7 @@ app.post('/api/drums/:id/allocations', requireAuth, (req, res) => {
     const now = new Date();
     const melbourneTime = now.toLocaleString('en-AU', { timeZone: 'Australia/Melbourne', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).replace(/(\d{2})\/(\d{2})\/(\d{4}), (.*)/, '$3-$2-$1 $4');
     const stmt = db.prepare('INSERT INTO cable_allocations (drum_id, project_allocation, qty_used, qty_remaining, used_by, comments, kp_from, kp_to, created_on) VALUES (?,?,?,?,?,?,?,?,?)');
-    const r = stmt.run(req.params.id, project_allocation, qty_used, qty_remaining, used_by || req.user.username, comments, kp_from, kp_to, melbourneTime);
+    const r = stmt.run(req.params.id, project_allocation, qty_used, qty_remaining, used_by || getUserFullName(req.user.username), comments, kp_from, kp_to, melbourneTime);
     res.json({ id: r.lastInsertRowid });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
