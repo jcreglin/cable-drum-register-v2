@@ -1292,12 +1292,20 @@ function showDrumList() {
       // Populate project dropdown
       const projectSelect = document.getElementById('allocation_project');
       projectSelect.innerHTML = '<option value="">Select Project</option>';
-      call('/api/projects').then(r => r.json()).then(data => {
-        if (data && data.length) {
-          projectSelect.innerHTML = '<option value="">Select Project</option>' + 
-            data.map(p => '<option value="' + p.name + '">' + p.name + '</option>').join('');
-        }
-      });
+      if (currentUserRole === 'client') {
+        call('/api/filter-options').then(r => r.json()).then(opts => {
+          const projects = opts.project_allocation || [];
+          projectSelect.innerHTML = '<option value="">Select Project</option>' +
+            projects.map(p => '<option value="' + p + '">' + p + '</option>').join('');
+        });
+      } else {
+        call('/api/projects').then(r => r.json()).then(data => {
+          if (data && data.length) {
+            projectSelect.innerHTML = '<option value="">Select Project</option>' + 
+              data.map(p => '<option value="' + p.name + '">' + p.name + '</option>').join('');
+          }
+        });
+      }
       
       document.getElementById('allocationModal').style.display = 'flex';
     }
