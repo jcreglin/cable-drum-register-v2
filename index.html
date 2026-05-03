@@ -547,19 +547,27 @@
       try {
         const r = await (await call('/api/filter-options')).json();
         const mapping = {
-          'client': { id: 'filterClient', label: 'Clients' },
-          'drum_owner': { id: 'filterOwner', label: 'Owners' },
-          'cable_type': { id: 'filterType', label: 'Cable Types' },
-          'cable_count': { id: 'filterCount', label: 'Cable Counts' },
-          'type': { id: 'filterCategory', label: 'Types' },
-          'warehouse': { id: 'filterWarehouse', label: 'Warehouses' },
-          'project_allocation': { id: 'filterProject', label: 'Projects' }
+          'client': { filterId: 'filterClient', formId: 'client', label: 'Clients' },
+          'drum_owner': { filterId: 'filterOwner', formId: 'drum_owner', label: 'Owners' },
+          'cable_type': { filterId: 'filterType', formId: 'cable_type', label: 'Cable Types' },
+          'cable_count': { filterId: 'filterCount', formId: 'cable_count', label: 'Cable Counts' },
+          'type': { filterId: 'filterCategory', formId: 'type', label: 'Types' },
+          'warehouse': { filterId: 'filterWarehouse', formId: 'warehouse', label: 'Warehouses' },
+          'project_allocation': { filterId: 'filterProject', formId: 'project_allocation', label: 'Projects' }
         };
         Object.entries(mapping).forEach(([field, m]) => {
-          const el = document.getElementById(m.id);
-          if (el && r[field]) {
-            el.innerHTML = '<option value="">All ' + m.label + '</option>' +
-              r[field].map(v => '<option value="' + v + '">' + v + '</option>').join('');
+          const values = r[field] || [];
+          // Populate filter dropdown
+          const filterEl = document.getElementById(m.filterId);
+          if (filterEl) {
+            filterEl.innerHTML = '<option value="">All ' + m.label + '</option>' +
+              values.map(v => '<option value="' + v + '">' + v + '</option>').join('');
+          }
+          // Also populate form dropdown for client users
+          const formEl = document.getElementById(m.formId);
+          if (formEl) {
+            formEl.innerHTML = '<option value="">Select ' + m.label.replace(/s$/, '') + '</option>' +
+              values.map(v => '<option value="' + v + '">' + v + '</option>').join('');
           }
         });
       } catch(e) { console.error('Filter options error:', e); }
