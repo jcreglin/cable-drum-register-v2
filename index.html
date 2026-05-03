@@ -1607,7 +1607,8 @@ function showDrumList() {
     
     function openAllocImportModal() {
       const modal = document.createElement('div');
-      modal.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:1000;';
+      modal.id = 'allocImportModal';
+      modal.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10001;';
       modal.innerHTML = `
         <div style="background:white;padding:30px;border-radius:8px;max-width:600px;width:90%;max-height:80vh;overflow:auto;">
           <h3>Import Allocations (CSV)</h3>
@@ -1617,7 +1618,7 @@ function showDrumList() {
           <textarea id="allocCsvData" rows="10" style="width:100%;margin:10px 0;font-size:12px;" placeholder="Or paste CSV data here..."></textarea>
           <div style="display:flex;gap:10px;">
             <button onclick="importAllocations()">Import</button>
-            <button onclick="this.closest('div[style]').remove()" class="secondary">Cancel</button>
+            <button onclick="document.getElementById('allocImportModal').remove()" class="secondary">Cancel</button>
           </div>
         </div>
       `;
@@ -1646,7 +1647,7 @@ function showDrumList() {
           let msg = 'Imported: ' + r.results.imported + '\nSkipped: ' + r.results.skipped;
           if (r.results.errors.length > 0) msg += '\nErrors (' + r.results.errors.length + '):\n' + r.results.errors.slice(0, 10).join('\n');
           alert(msg);
-          var m = document.querySelector('div[style*="position:fixed"][style*="z-index"]');
+          var m = document.getElementById('allocImportModal');
           if (m) m.remove();
           loadAll();
         } else {
