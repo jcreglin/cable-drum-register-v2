@@ -852,16 +852,33 @@ app.get('/api/drums/:id/allocations', requireAuth, (req, res) => {
 app.get('/api/allocations', requireAuth, (req, res) => {
   try {
     const projectId = req.query.project_id;
-    let query = 'SELECT ca.*, cd.drum_number, cd.client, cd.cable_type, cd.cable_count, cd.sheath_colour, cd.comments as drum_comments FROM cable_allocations ca LEFT JOIN cable_drums cd ON ca.drum_id = cd.id';
+    const projectName = req.query.project_name;
+    const cf = getClientFilter(req.user);
+    let query = 'SELECT ca.*, cd.drum_number, cd.client, cd.cable_type, cd.cable_count, cd.sheath_colour, cd.comments as drum_comments FROM cable_allocations ca LEFT JOIN cable_drums cd ON ca.drum_id = cd.id WHERE 1=1';
+    const params = [];
     
     if (projectId) {
-      query += ' WHERE ca.project_allocation = (SELECT name FROM projects WHERE id = ?)';
-      const allocations = db.prepare(query + ' ORDER BY ca.created_on DESC').all(projectId);
-      res.json(allocations);
-    } else {
-      const allocations = db.prepare(query + ' ORDER BY ca.created_on DESC').all();
-      res.json(allocations);
+      query += ' AND ca.project_allocation = (SELECT name FROM projects WHERE id = ?)';
+      params.push(projectId);
+    } else if (projectName) {
+      query += ' AND ca.project_allocation = ?';
+      params.push(projectName);
     }
+    // Apply client access filter on the drum
+    if (cf.sql) {
+      query += cf.sql.replace(/\bAND\b/g, 'AND cd.');
+    }
+    // Simpler: just re-apply on cd columns
+    if (req.user.role === 'client') {
+      const cf2 = getClientFilter(req.user);
+      if (cf2.params.length > 0) {
+        query += cf2.sql.replace(/\bclient\b/g, 'cd.client').replace(/\bdrum_owner\b/g, 'cd.drum_owner');
+        params.push(...cf2.params);
+      }
+    }
+    
+    const allocations = db.prepare(query + ' ORDER BY ca.created_on DESC').all(...params);
+    res.json(allocations);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 

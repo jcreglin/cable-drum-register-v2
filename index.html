@@ -758,12 +758,23 @@
 
     async function loadProjects() {
       try {
-        const r = await call('/api/projects?filter=all');
-        const projects = await r.json();
-        const select = document.getElementById('projectSelect');
-        if (select) {
-          select.innerHTML = '<option value="">-- Choose a project --</option>' + 
-            projects.filter(p => !p.archived).map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+        if (currentUserRole === 'client') {
+          // Client: only show projects from their accessible drums
+          const opts = await (await call('/api/filter-options')).json();
+          const allowedProjects = opts.project_allocation || [];
+          const select = document.getElementById('projectSelect');
+          if (select) {
+            select.innerHTML = '<option value="">-- Choose a project --</option>' +
+              allowedProjects.map(p => '<option value="' + p + '">' + p + '</option>').join('');
+          }
+        } else {
+          const r = await call('/api/projects?filter=all');
+          const projects = await r.json();
+          const select = document.getElementById('projectSelect');
+          if (select) {
+            select.innerHTML = '<option value="">-- Choose a project --</option>' + 
+              projects.filter(p => !p.archived).map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+          }
         }
       } catch(e) {
         console.error('Error loading projects:', e);
@@ -780,7 +791,8 @@
           return;
         }
         
-        const r = await call('/api/allocations?project_id=' + projectId);
+        const param = currentUserRole === 'client' ? 'project_name=' + encodeURIComponent(projectId) : 'project_id=' + projectId;
+        const r = await call('/api/allocations?' + param);
         const allocations = await r.json();
         
         const tbody = document.getElementById('projectAllocationsBody');
