@@ -185,12 +185,6 @@ app.post('/api/login', (req, res) => {
   }
 });
 
-app.get('/api/me', requireAuth, (req, res) => {
-  const perms = getEffectivePermissions(req.user);
-  const dbUser = db.prepare('SELECT id, username, role, first_name, last_name, email FROM users WHERE username = ?').get(req.user.username);
-  res.json({ ...dbUser, permissions: perms });
-});
-
 app.post('/api/logout', (req, res) => {
   const sid = req.headers.authorization;
   if (sid) delete sessions[sid];
@@ -203,6 +197,12 @@ const requireAuth = (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
   next();
 };
+
+app.get('/api/me', requireAuth, (req, res) => {
+  const perms = getEffectivePermissions(req.user);
+  const dbUser = db.prepare('SELECT id, username, role, first_name, last_name, email FROM users WHERE username = ?').get(req.user.username);
+  res.json({ ...dbUser, permissions: perms });
+});
 
 // User management APIs
 app.get('/api/users', requireAuth, (req, res) => {
