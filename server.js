@@ -753,7 +753,7 @@ app.post('/api/master-delete', requireRole(['admin']), (req, res) => {
 });
 
 app.post('/api/drums', requireAuth, (req, res) => {
-  if (!ROLES[req.user.role]?.canCreate) return res.status(403).json({ error: 'Permission denied' });
+  if (!getEffectivePermissions(req.user).canCreate) return res.status(403).json({ error: 'Permission denied' });
   try {
     const d = req.body || {};
     console.log('Saving drum:', d);
@@ -790,7 +790,7 @@ app.post('/api/drums', requireAuth, (req, res) => {
 });
 
 app.put('/api/drums/:id', requireAuth, (req, res) => {
-  if (!ROLES[req.user.role]?.canEdit) return res.status(403).json({ error: 'Permission denied' });
+  if (!getEffectivePermissions(req.user).canEdit) return res.status(403).json({ error: 'Permission denied' });
   try {
     const d = req.body || {};
     const inner = parseFloat(d.inner_end_reading) || 0;
@@ -829,7 +829,7 @@ app.put('/api/drums/:id', requireAuth, (req, res) => {
 });
 
 app.delete('/api/drums/:id', requireAuth, (req, res) => {
-  if (!ROLES[req.user.role]?.canDelete) return res.status(403).json({ error: 'Permission denied' });
+  if (!getEffectivePermissions(req.user).canDelete) return res.status(403).json({ error: 'Permission denied' });
   try {
     // Delete allocations first, then the drum
     db.prepare('DELETE FROM cable_allocations WHERE drum_id=?').run(req.params.id);
@@ -954,7 +954,7 @@ app.post('/api/drums/:id/toggle-sign', requireAuth, (req, res) => {
 });
 
 app.post('/api/drums/:id/allocations', requireAuth, (req, res) => {
-  if (!ROLES[req.user.role]?.canAddAllocation) return res.status(403).json({ error: 'Permission denied' });
+  if (!getEffectivePermissions(req.user).canAddAllocation) return res.status(403).json({ error: 'Permission denied' });
   try {
     const { project_allocation, qty_used, qty_remaining, used_by, comments, kp_from, kp_to } = req.body;
     const now = new Date();

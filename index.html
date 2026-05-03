@@ -1642,7 +1642,7 @@ function showDrumList() {
 
       // Use effective permissions (base role + overrides)
       if (addDrumBtn) addDrumBtn.style.display = p.canCreate ? 'inline-block' : 'none';
-      if (settingsTab) settingsTab.style.display = (currentUserRole === 'admin') ? 'inline-block' : 'none';
+      if (settingsTab) settingsTab.style.display = (currentUserRole === 'admin' || p.canManageUsers) ? 'inline-block' : 'none';
       if (newAllocBtn) newAllocBtn.style.display = p.canAddAllocation ? 'inline-block' : 'none';
       if (actionsHeader) actionsHeader.style.display = (p.canEdit || p.canDelete) ? '' : 'none';
     }
