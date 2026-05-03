@@ -111,6 +111,18 @@ try {
   }
 }
 
+// Migration: add must_change_password column
+try {
+  db.prepare('SELECT must_change_password FROM users LIMIT 1').get();
+} catch(e) {
+  if (e.message.includes('no such column')) {
+    db.exec('ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 1');
+    // Set existing users to 0 (they've already been using the system)
+    db.exec('UPDATE users SET must_change_password = 0');
+    console.log('Added must_change_password column to users');
+  }
+}
+
 const ROLES = {
   admin: { canCreate: true, canEdit: true, canDelete: true, canAddAllocation: true, canManageUsers: true, canView: true },
   office: { canCreate: true, canEdit: true, canDelete: false, canAddAllocation: true, canManageUsers: false, canView: true },
@@ -187,7 +199,7 @@ app.post('/api/login', (req, res) => {
     const sid = Math.random().toString(36).slice(2);
     sessions[sid] = { username: dbUser.username, role: dbUser.role, id: dbUser.id };
     const perms = getEffectivePermissions({ username: dbUser.username, role: dbUser.role });
-    res.json({ token: sid, user: { username: dbUser.username, role: dbUser.role, first_name: dbUser.first_name, last_name: dbUser.last_name, permissions: perms } });
+    res.json({ token: sid, user: { username: dbUser.username, role: dbUser.role, first_name: dbUser.first_name, last_name: dbUser.last_name, permissions: perms, must_change_password: !!dbUser.must_change_password } });
   } else { 
     console.log('Login failed for:', username);
     res.status(401).json({ error: 'Invalid credentials' }); 
@@ -209,8 +221,18 @@ const requireAuth = (req, res, next) => {
 
 app.get('/api/me', requireAuth, (req, res) => {
   const perms = getEffectivePermissions(req.user);
-  const dbUser = db.prepare('SELECT id, username, role, first_name, last_name, email FROM users WHERE username = ?').get(req.user.username);
-  res.json({ ...dbUser, permissions: perms });
+  const dbUser = db.prepare('SELECT id, username, role, first_name, last_name, email, must_change_password FROM users WHERE username = ?').get(req.user.username);
+  res.json({ ...dbUser, must_change_password: !!dbUser.must_change_password, permissions: perms });
+});
+
+// Change own password
+app.post('/api/change-password', requireAuth, (req, res) => {
+  try {
+    const { newPassword } = req.body;
+    if (!newPassword || newPassword.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' });
+    db.prepare('UPDATE users SET password = ?, must_change_password = 0 WHERE username = ?').run(newPassword, req.user.username);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 // User management APIs
@@ -245,7 +267,7 @@ app.post('/api/users', requireAuth, (req, res) => {
     if (!username || !password || !role) return res.status(400).json({ error: 'Username, password and role required' });
     if (!ROLES[role]) return res.status(400).json({ error: 'Invalid role' });
     const permJson = permissions ? JSON.stringify(permissions) : '{}';
-    const r = db.prepare('INSERT INTO users (username, password, role, first_name, last_name, email, active, permissions) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(username, password, role, first_name || '', last_name || '', email || '', active !== undefined ? (active ? 1 : 0) : 1, permJson);
+    const r = db.prepare('INSERT INTO users (username, password, role, first_name, last_name, email, active, permissions, must_change_password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)').run(username, password, role, first_name || '', last_name || '', email || '', active !== undefined ? (active ? 1 : 0) : 1, permJson);
     users[username] = { password, role, id: r.lastInsertRowid };
     res.json({ id: r.lastInsertRowid, username, role });
   } catch(e) { res.status(400).json({ error: 'Username already exists or error' }); }

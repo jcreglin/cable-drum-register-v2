@@ -1631,6 +1631,40 @@ function showDrumList() {
       }
     }
     
+    async function showChangePasswordModal() {
+      return new Promise((resolve) => {
+        const modal = document.createElement('div');
+        modal.id = 'changePasswordModal';
+        modal.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:10002;';
+        modal.innerHTML = `
+          <div style="background:white;padding:30px;border-radius:8px;max-width:400px;width:90%;">
+            <h3 style="margin-top:0;">Change Your Password</h3>
+            <p style="font-size:13px;color:#666;">You must change your password before continuing.</p>
+            <input type="password" id="newPass1" placeholder="New password" style="width:100%;padding:8px;margin:5px 0;box-sizing:border-box;">
+            <input type="password" id="newPass2" placeholder="Confirm new password" style="width:100%;padding:8px;margin:5px 0;box-sizing:border-box;">
+            <button onclick="submitPasswordChange()" style="width:100%;margin-top:10px;">Change Password</button>
+          </div>
+        `;
+        document.body.appendChild(modal);
+        window._resolvePasswordChange = resolve;
+      });
+    }
+
+    async function submitPasswordChange() {
+      const p1 = document.getElementById('newPass1').value;
+      const p2 = document.getElementById('newPass2').value;
+      if (!p1 || p1.length < 4) { alert('Password must be at least 4 characters'); return; }
+      if (p1 !== p2) { alert('Passwords do not match'); return; }
+      try {
+        const r = await call('/api/change-password', { method: 'POST', body: JSON.stringify({ newPassword: p1 }) });
+        const d = await r.json();
+        if (d.success) {
+          document.getElementById('changePasswordModal').remove();
+          if (window._resolvePasswordChange) window._resolvePasswordChange();
+        } else { alert('Error: ' + (d.error || 'Unknown')); }
+      } catch(e) { alert('Error: ' + e.message); }
+    }
+
     // Get current user role and permissions
     async function checkUserRole() {
       try {
@@ -1638,6 +1672,10 @@ function showDrumList() {
         if (r.ok) {
           const d = await r.json();
           if (d.username) {
+            // Check if password change required
+            if (d.must_change_password) {
+              await showChangePasswordModal();
+            }
             currentUserRole = d.role;
             currentUserPerms = d.permissions || {};
             currentUserFullName = [d.first_name, d.last_name].filter(Boolean).join(' ') || d.username;
