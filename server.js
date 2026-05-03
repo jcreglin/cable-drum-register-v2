@@ -865,15 +865,25 @@ app.get('/api/allocations', requireAuth, (req, res) => {
       params.push(projectName);
     }
     // Apply client access filter on the drum
-    if (cf.sql) {
-      query += cf.sql.replace(/\bAND\b/g, 'AND cd.');
-    }
-    // Simpler: just re-apply on cd columns
     if (req.user.role === 'client') {
-      const cf2 = getClientFilter(req.user);
-      if (cf2.params.length > 0) {
-        query += cf2.sql.replace(/\bclient\b/g, 'cd.client').replace(/\bdrum_owner\b/g, 'cd.drum_owner');
-        params.push(...cf2.params);
+      const userId = db.prepare('SELECT id FROM users WHERE username = ?').get(req.user.username);
+      if (userId) {
+        const clientAccess = db.prepare('SELECT client_name FROM user_client_access WHERE user_id = ?').all(userId.id);
+        const ownerAccess = db.prepare('SELECT drum_owner_name FROM user_owner_access WHERE user_id = ?').all(userId.id);
+        const conditions = [];
+        if (clientAccess.length > 0) {
+          conditions.push('cd.client IN (' + clientAccess.map(() => '?').join(',') + ')');
+          params.push(...clientAccess.map(c => c.client_name));
+        }
+        if (ownerAccess.length > 0) {
+          conditions.push('cd.drum_owner IN (' + ownerAccess.map(() => '?').join(',') + ')');
+          params.push(...ownerAccess.map(o => o.drum_owner_name));
+        }
+        if (conditions.length > 0) {
+          query += ' AND (' + conditions.join(' OR ') + ')';
+        } else {
+          query += ' AND 1=0';
+        }
       }
     }
     
