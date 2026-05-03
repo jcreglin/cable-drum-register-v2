@@ -449,7 +449,7 @@
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">
           <h3>Cable Allocations</h3>
-          <button onclick="window.allocationGoToAllocations = true; showAllocationForm(viewDrumId)">+ New Allocation</button>
+          <button id="newAllocBtn" onclick="window.allocationGoToAllocations = true; showAllocationForm(viewDrumId)">+ New Allocation</button>
           <button onclick="exportAllocations()">📤 Export</button>
         </div>
         <table style="font-size:12px;">
@@ -638,7 +638,7 @@
           <td>${d.client || '-'}</td><td>${d.drum_owner || '-'}</td>
           <td>${d.remaining_length || '-'}</td><td>${d.cable_type || '-'}</td><td>${d.cable_count || '-'}</td><td>${d.type || '-'}</td>
           <td><span class="status-badge" style="background:${d.status === 'Active' ? '#dcfce7' : d.status === 'Retired' ? '#fee2e2' : '#e2e8f0'};">${d.status || '-'}</span></td>
-          ${currentUserRole !== 'user' ? '<td class="actions" onclick="event.stopPropagation()">' + (currentUserRole !== 'user' ? '<button class="small" onclick="editDrum(' + d.id + ')">Edit</button>' : '') + (currentUserRole === 'admin' ? '<button class="small danger" onclick="deleteDrum(' + d.id + ')">Del</button>' : '') + '</td>' : ''}
+          ${(currentUserRole !== 'user' && currentUserRole !== 'client') ? '<td class="actions" onclick="event.stopPropagation()">' + ((currentUserRole !== 'user' && currentUserRole !== 'client') ? '<button class="small" onclick="editDrum(' + d.id + ')">Edit</button>' : '') + (currentUserRole === 'admin' ? '<button class="small danger" onclick="deleteDrum(' + d.id + ')">Del</button>' : '') + '</td>' : ''}
         </tr>`).join('');
     }
 
@@ -1554,7 +1554,15 @@ function showDrumList() {
       
       const actionsHeader = document.getElementById('actionsHeader');
       
-      if (currentUserRole === 'user') {
+      const newAllocBtn = document.getElementById('newAllocBtn');
+
+      if (currentUserRole === 'client') {
+        // Client role: view only - no edit, no add drum, no allocations, no settings
+        if (addDrumBtn) addDrumBtn.style.display = 'none';
+        if (settingsTab) settingsTab.style.display = 'none';
+        if (actionsHeader) actionsHeader.style.display = 'none';
+        if (newAllocBtn) newAllocBtn.style.display = 'none';
+      } else if (currentUserRole === 'user') {
         // User role: no edit, no delete, no settings, no add drum, no actions column
         if (addDrumBtn) addDrumBtn.style.display = 'none';
         if (settingsTab) settingsTab.style.display = 'none';
