@@ -532,9 +532,32 @@
       await loadStats();
       await loadDrums();
       await loadLookups();
+      if (currentUserRole === 'client') await loadClientFilterOptions();
       loadLookupTable('clients', 'active');
       await loadProjects();
       // Display name is set by checkUserRole()
+    }
+
+    async function loadClientFilterOptions() {
+      try {
+        const r = await (await call('/api/filter-options')).json();
+        const mapping = {
+          'client': { id: 'filterClient', label: 'Clients' },
+          'drum_owner': { id: 'filterOwner', label: 'Owners' },
+          'cable_type': { id: 'filterType', label: 'Cable Types' },
+          'cable_count': { id: 'filterCount', label: 'Cable Counts' },
+          'type': { id: 'filterCategory', label: 'Types' },
+          'warehouse': { id: 'filterWarehouse', label: 'Warehouses' },
+          'project_allocation': { id: 'filterProject', label: 'Projects' }
+        };
+        Object.entries(mapping).forEach(([field, m]) => {
+          const el = document.getElementById(m.id);
+          if (el && r[field]) {
+            el.innerHTML = '<option value="">All ' + m.label + '</option>' +
+              r[field].map(v => '<option value="' + v + '">' + v + '</option>').join('');
+          }
+        });
+      } catch(e) { console.error('Filter options error:', e); }
     }
 
     async function loadStats() {
@@ -702,8 +725,8 @@
         const map = mapping[table];
         if (!map) continue;
         
-        // Populate filter dropdown
-        if (map.filter) {
+        // Populate filter dropdown (for non-client users, use lookup tables)
+        if (map.filter && currentUserRole !== 'client') {
           const filterSelect = document.getElementById(map.filter);
           if (filterSelect) {
             filterSelect.innerHTML = '<option value="">All ' + map.label + '</option>' + 

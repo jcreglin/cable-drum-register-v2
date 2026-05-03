@@ -947,20 +947,60 @@ app.post('/api/drums/:id/allocations', requireAuth, (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// Helper: get client access filter SQL for client role users
+function getClientFilter(user) {
+  if (user.role !== 'client') return { sql: '', params: [] };
+  const userId = db.prepare('SELECT id FROM users WHERE username = ?').get(user.username);
+  if (!userId) return { sql: ' AND 1=0', params: [] };
+  const clientAccess = db.prepare('SELECT client_name FROM user_client_access WHERE user_id = ?').all(userId.id);
+  const ownerAccess = db.prepare('SELECT drum_owner_name FROM user_owner_access WHERE user_id = ?').all(userId.id);
+  const allowedClients = clientAccess.map(c => c.client_name);
+  const allowedOwners = ownerAccess.map(o => o.drum_owner_name);
+  if (allowedClients.length === 0 && allowedOwners.length === 0) return { sql: ' AND 1=0', params: [] };
+  const conditions = [];
+  const params = [];
+  if (allowedClients.length > 0) {
+    conditions.push('client IN (' + allowedClients.map(() => '?').join(',') + ')');
+    params.push(...allowedClients);
+  }
+  if (allowedOwners.length > 0) {
+    conditions.push('drum_owner IN (' + allowedOwners.map(() => '?').join(',') + ')');
+    params.push(...allowedOwners);
+  }
+  return { sql: ' AND (' + conditions.join(' OR ') + ')', params };
+}
+
 app.get('/api/stats', requireAuth, (req, res) => {
   console.log('Stats requested by user:', req.user?.username);
   try {
-    const total = db.prepare('SELECT COUNT(*) as c FROM cable_drums').get().c || 0;
-    const signed = db.prepare("SELECT COUNT(*) as c FROM cable_drums WHERE sign_status='Signed Out'").get().c || 0;
-    const active = db.prepare("SELECT COUNT(*) as c FROM cable_drums WHERE status='Active'").get().c || 0;
-    const valueResult = db.prepare('SELECT SUM(remaining_length * price_per_meter) as v FROM cable_drums WHERE remaining_length IS NOT NULL AND price_per_meter IS NOT NULL').get();
+    const cf = getClientFilter(req.user);
+    const total = db.prepare('SELECT COUNT(*) as c FROM cable_drums WHERE 1=1' + cf.sql).get(...cf.params).c || 0;
+    const signed = db.prepare("SELECT COUNT(*) as c FROM cable_drums WHERE sign_status='Signed Out'" + cf.sql).get(...cf.params).c || 0;
+    const active = db.prepare("SELECT COUNT(*) as c FROM cable_drums WHERE status='Active'" + cf.sql).get(...cf.params).c || 0;
+    const valueResult = db.prepare('SELECT SUM(remaining_length * price_per_meter) as v FROM cable_drums WHERE remaining_length IS NOT NULL AND price_per_meter IS NOT NULL' + cf.sql).get(...cf.params);
     const totalValue = valueResult?.v || 0;
-    const warehouses = db.prepare("SELECT COUNT(DISTINCT warehouse) as c FROM cable_drums WHERE warehouse IS NOT NULL AND warehouse != ''").get().c || 0;
+    const warehouses = db.prepare("SELECT COUNT(DISTINCT warehouse) as c FROM cable_drums WHERE warehouse IS NOT NULL AND warehouse != ''" + cf.sql).get(...cf.params).c || 0;
     console.log('Stats result:', { total, signed, active, totalValue, warehouses });
     res.json({ total, signed, active, totalValue, warehouses });
   } catch(e) { 
     console.error('Stats error:', e);
     res.status(500).json({ error: e.message }); 
+  }
+});
+
+// Client-scoped filter options - returns only values from accessible drums
+app.get('/api/filter-options', requireAuth, (req, res) => {
+  try {
+    const cf = getClientFilter(req.user);
+    const fields = ['client', 'drum_owner', 'cable_type', 'cable_count', 'type', 'warehouse', 'project_allocation'];
+    const options = {};
+    fields.forEach(f => {
+      const rows = db.prepare('SELECT DISTINCT ' + f + ' as name FROM cable_drums WHERE ' + f + ' IS NOT NULL AND ' + f + " != '' AND 1=1" + cf.sql + ' ORDER BY ' + f).all(...cf.params);
+      options[f] = rows.map(r => r.name);
+    });
+    res.json(options);
+  } catch(e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
