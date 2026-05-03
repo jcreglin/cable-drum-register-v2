@@ -1487,8 +1487,12 @@ function showDrumList() {
       const base = basePerms[role] || basePerms.client;
       const labels = {
         canEdit: 'Edit Drums', canDelete: 'Delete Drums', canCreate: 'Add Drums',
-        canAddAllocation: 'Add Allocations', canManageUsers: 'Manage Users'
+        canAddAllocation: 'Add Allocations'
       };
+      // Only office and user can get Manage Users
+      if (role === 'office' || role === 'user') {
+        labels.canManageUsers = 'Manage Users';
+      }
       const container = document.getElementById('permCheckboxes');
       // Only show checkboxes for permissions not already in the base role
       container.innerHTML = Object.entries(labels)

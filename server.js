@@ -753,7 +753,9 @@ app.post('/api/master-delete', requireRole(['admin']), (req, res) => {
 });
 
 app.post('/api/drums', requireAuth, (req, res) => {
-  if (!getEffectivePermissions(req.user).canCreate) return res.status(403).json({ error: 'Permission denied' });
+  const perms = getEffectivePermissions(req.user);
+  console.log('Create drum - user:', req.user.username, 'role:', req.user.role, 'perms:', JSON.stringify(perms));
+  if (!perms.canCreate) return res.status(403).json({ error: 'Permission denied' });
   try {
     const d = req.body || {};
     console.log('Saving drum:', d);
