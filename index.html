@@ -347,6 +347,11 @@
           </div>
         </div>
       </div>
+      <div id="permOverridesSection" style="display:none;margin:15px 0;padding:15px;background:#fff7ed;border-radius:8px;">
+        <h4 style="margin:0 0 10px 0;color:#333;">Extra Permissions</h4>
+        <p style="margin:0 0 10px 0;font-size:12px;color:#666;">Grant additional permissions beyond the base role:</p>
+        <div id="permCheckboxes" style="display:flex;flex-wrap:wrap;gap:10px;"></div>
+      </div>
       <label style="display:flex;align-items:center;gap:10px;">
         <input type="checkbox" id="user_active" style="width:auto;margin:0;"> Active
       </label>
@@ -661,7 +666,7 @@
           <td>${d.client || '-'}</td><td>${d.drum_owner || '-'}</td>
           <td>${d.remaining_length || '-'}</td><td>${d.cable_type || '-'}</td><td>${d.cable_count || '-'}</td><td>${d.type || '-'}</td>
           <td><span class="status-badge" style="background:${d.status === 'Active' ? '#dcfce7' : d.status === 'Retired' ? '#fee2e2' : '#e2e8f0'};">${d.status || '-'}</span></td>
-          ${(currentUserRole !== 'user' && currentUserRole !== 'client') ? '<td class="actions" onclick="event.stopPropagation()">' + ((currentUserRole !== 'user' && currentUserRole !== 'client') ? '<button class="small" onclick="editDrum(' + d.id + ')">Edit</button>' : '') + (currentUserRole === 'admin' ? '<button class="small danger" onclick="deleteDrum(' + d.id + ')">Del</button>' : '') + '</td>' : ''}
+          ${(currentUserPerms.canEdit || currentUserPerms.canDelete) ? '<td class="actions" onclick="event.stopPropagation()">' + (currentUserPerms.canEdit ? '<button class="small" onclick="editDrum(' + d.id + ')">Edit</button>' : '') + (currentUserPerms.canDelete ? '<button class="small danger" onclick="deleteDrum(' + d.id + ')">Del</button>' : '') + '</td>' : ''}
         </tr>`).join('');
     }
 
@@ -1246,7 +1251,7 @@ function showDrumList() {
     function showAllocationForm(drumId) {
       currentDrumId = drumId || viewDrumId;
       document.getElementById('allocationModalTitle').textContent = 'Add Cable Allocation';
-      document.getElementById('allocation_used_by').value = '';
+      document.getElementById('allocation_used_by').value = currentUserFullName;
       document.getElementById('allocation_kp_from').value = '';
       document.getElementById('allocation_kp_to').value = '';
       document.getElementById('allocation_comments').value = '';
@@ -1372,6 +1377,8 @@ function showDrumList() {
 
     // User management
     let currentUserRole = null;
+    let currentUserPerms = {};
+    let currentUserFullName = '';
     let editingUserId = null;
     let currentUserFilter = 'active';
     
@@ -1425,14 +1432,26 @@ function showDrumList() {
       document.getElementById('user_active').checked = active !== 0;
       document.getElementById('userModal').classList.add('show');
       
-      // Show/hide client access section based on role
-      const accessSection = document.getElementById('clientAccessSection');
-      if (role === 'client') {
-        accessSection.style.display = 'block';
-        loadClientAccessCheckboxes();
-      } else {
-        accessSection.style.display = 'none';
+      // Trigger role change to show/hide sections
+      onUserRoleChange();
+
+      // Load existing permissions if editing
+      if (id) {
+        loadUserPermissions(id);
       }
+    }
+
+    async function loadUserPermissions(userId) {
+      try {
+        const r = await (await call('/api/users')).json();
+        const user = r.find(u => u.id === userId);
+        if (user && user.permissions) {
+          const perms = typeof user.permissions === 'string' ? JSON.parse(user.permissions) : user.permissions;
+          document.querySelectorAll('.perm-override-checkbox').forEach(cb => {
+            cb.checked = !!perms[cb.dataset.perm];
+          });
+        }
+      } catch(e) {}
     }
     
     function editUser(id, username, role, first_name, last_name, email, active) {
@@ -1442,12 +1461,42 @@ function showDrumList() {
     function onUserRoleChange() {
       const role = document.getElementById('user_role').value;
       const accessSection = document.getElementById('clientAccessSection');
+      const permSection = document.getElementById('permOverridesSection');
       if (role === 'client') {
         accessSection.style.display = 'block';
         loadClientAccessCheckboxes();
       } else {
         accessSection.style.display = 'none';
       }
+      // Show permission overrides for non-admin roles
+      if (role !== 'admin') {
+        permSection.style.display = 'block';
+        loadPermCheckboxes(role);
+      } else {
+        permSection.style.display = 'none';
+      }
+    }
+
+    function loadPermCheckboxes(role) {
+      const basePerms = {
+        admin: { canCreate: true, canEdit: true, canDelete: true, canAddAllocation: true, canManageUsers: true },
+        office: { canCreate: true, canEdit: true, canDelete: false, canAddAllocation: true, canManageUsers: false },
+        user: { canCreate: false, canEdit: false, canDelete: false, canAddAllocation: true, canManageUsers: false },
+        client: { canCreate: false, canEdit: false, canDelete: false, canAddAllocation: false, canManageUsers: false }
+      };
+      const base = basePerms[role] || basePerms.client;
+      const labels = {
+        canEdit: 'Edit Drums', canDelete: 'Delete Drums', canCreate: 'Add Drums',
+        canAddAllocation: 'Add Allocations', canManageUsers: 'Manage Users'
+      };
+      const container = document.getElementById('permCheckboxes');
+      // Only show checkboxes for permissions not already in the base role
+      container.innerHTML = Object.entries(labels)
+        .filter(([key]) => !base[key])
+        .map(([key, label]) => 
+          '<label style="display:flex;align-items:center;gap:5px;font-weight:normal;">' +
+          '<input type="checkbox" class="perm-override-checkbox" data-perm="' + key + '" style="width:auto;margin:0;"> ' + label + '</label>'
+        ).join('');
     }
     
     async function loadClientAccessCheckboxes() {
@@ -1505,19 +1554,27 @@ function showDrumList() {
       console.log('Saving user:', username, role, 'editing:', editingUserId, 'active:', active);
       if (!username) { alert('Username required'); return; }
       if (!editingUserId && !password) { alert('Password required for new users'); return; }
+
+      // Collect permission overrides
+      const permissions = {};
+      document.querySelectorAll('.perm-override-checkbox:checked').forEach(cb => {
+        permissions[cb.dataset.perm] = true;
+      });
       
       try {
         if (editingUserId) {
-          const r = await call('/api/users/' + editingUserId, { method: 'PUT', body: JSON.stringify({ username, password, role, first_name, last_name, email, active }) });
+          const r = await call('/api/users/' + editingUserId, { method: 'PUT', body: JSON.stringify({ username, password, role, first_name, last_name, email, active, permissions }) });
           if (!r.ok) { const e = await r.json(); alert('Error: ' + e.error); return; }
         } else {
-          const r = await call('/api/users', { method: 'POST', body: JSON.stringify({ username, password, role, first_name, last_name, email, active }) });
+          const r = await call('/api/users', { method: 'POST', body: JSON.stringify({ username, password, role, first_name, last_name, email, active, permissions }) });
           console.log('Create user response:', r.status);
-          if (!r.ok) { const e = await r.json(); alert('Error: ' + e.error); return; }
+          const created = await r.json();
+          if (!r.ok) { alert('Error: ' + (created.error || 'Unknown error')); return; }
+          editingUserId = created.id;
         }
         
         // Save client access if role is client
-        if (role === 'client') {
+        if (role === 'client' && editingUserId) {
           const userId = editingUserId;
           const selectedClients = Array.from(document.querySelectorAll('.client-access-checkbox:checked')).map(cb => cb.value);
           const selectedOwners = Array.from(document.querySelectorAll('.owner-access-checkbox:checked')).map(cb => cb.value);
@@ -1542,27 +1599,30 @@ function showDrumList() {
       }
     }
     
-    // Get current user role
+    // Get current user role and permissions
     async function checkUserRole() {
       try {
         const r = await call('/api/me');
         if (r.ok) {
           const d = await r.json();
-          if (d.user) {
-            currentUserRole = d.user.role;
-            // Set display name
-            const displayName = d.user.displayName || d.user.username;
+          if (d.username) {
+            currentUserRole = d.role;
+            currentUserPerms = d.permissions || {};
+            currentUserFullName = [d.first_name, d.last_name].filter(Boolean).join(' ') || d.username;
+            const displayName = currentUserFullName;
             document.getElementById('userDisplay').innerHTML = '<span style="font-size:11px;color:#999;">Logged in As:</span><br>' + displayName;
-            // Show Users tab and Import button only for admin
+            // Show admin-only buttons
             if (currentUserRole === 'admin') {
-              document.getElementById('usersTabBtn').style.display = 'inline-block';
               document.getElementById('importBtn').style.display = 'inline-block';
               document.getElementById('allocImportBtn').style.display = 'inline-block';
               document.getElementById('masterDeleteBtn').style.display = 'inline-block';
               document.getElementById('backupBtn').style.display = 'inline-block';
               document.getElementById('restoreBtn').style.display = 'inline-block';
             }
-            // Apply role-based UI controls
+            // Show users tab for admin or users with canManageUsers
+            if (currentUserRole === 'admin' || currentUserPerms.canManageUsers) {
+              document.getElementById('usersTabBtn').style.display = 'inline-block';
+            }
             applyRolePermissions();
           }
         }
@@ -1578,25 +1638,13 @@ function showDrumList() {
       const actionsHeader = document.getElementById('actionsHeader');
       
       const newAllocBtn = document.getElementById('newAllocBtn');
+      const p = currentUserPerms;
 
-      if (currentUserRole === 'client') {
-        // Client role: view only - no edit, no add drum, no allocations, no settings
-        if (addDrumBtn) addDrumBtn.style.display = 'none';
-        if (settingsTab) settingsTab.style.display = 'none';
-        if (actionsHeader) actionsHeader.style.display = 'none';
-        if (newAllocBtn) newAllocBtn.style.display = 'none';
-      } else if (currentUserRole === 'user') {
-        // User role: no edit, no delete, no settings, no add drum, no actions column
-        if (addDrumBtn) addDrumBtn.style.display = 'none';
-        if (settingsTab) settingsTab.style.display = 'none';
-        if (actionsHeader) actionsHeader.style.display = 'none';
-      } else if (currentUserRole === 'office') {
-        // Office role: can add/edit, no delete
-        if (addDrumBtn) addDrumBtn.style.display = 'inline-block';
-      } else {
-        // Admin: everything visible
-        if (addDrumBtn) addDrumBtn.style.display = 'inline-block';
-      }
+      // Use effective permissions (base role + overrides)
+      if (addDrumBtn) addDrumBtn.style.display = p.canCreate ? 'inline-block' : 'none';
+      if (settingsTab) settingsTab.style.display = (currentUserRole === 'admin') ? 'inline-block' : 'none';
+      if (newAllocBtn) newAllocBtn.style.display = p.canAddAllocation ? 'inline-block' : 'none';
+      if (actionsHeader) actionsHeader.style.display = (p.canEdit || p.canDelete) ? '' : 'none';
     }
 
     async function exportDrums() {
@@ -1877,16 +1925,9 @@ function showDrumList() {
         const r = await call('/api/me');
         if (r.ok) {
           const d = await r.json();
-          if (d.user) {
+          if (d.username || d.user) {
             document.getElementById('loginScreen').classList.add('hidden');
             document.getElementById('mainApp').classList.remove('hidden');
-            if (d.user.role === 'admin') {
-              document.getElementById('importBtn').style.display = 'inline-block';
-              document.getElementById('allocImportBtn').style.display = 'inline-block';
-              document.getElementById('masterDeleteBtn').style.display = 'inline-block';
-              document.getElementById('backupBtn').style.display = 'inline-block';
-              document.getElementById('restoreBtn').style.display = 'inline-block';
-            }
             loadAll();
             return;
           }

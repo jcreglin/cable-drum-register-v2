@@ -101,12 +101,35 @@ try {
   }
 }
 
+// Migration: add permissions column to users
+try {
+  db.prepare('SELECT permissions FROM users LIMIT 1').get();
+} catch(e) {
+  if (e.message.includes('no such column')) {
+    db.exec('ALTER TABLE users ADD COLUMN permissions TEXT DEFAULT "{}"');
+    console.log('Added permissions column to users');
+  }
+}
+
 const ROLES = {
-  admin: { canCreate: true, canEdit: true, canDelete: true, canAddAllocation: true, canView: true },
-  office: { canCreate: true, canEdit: true, canDelete: false, canAddAllocation: true, canView: true },
-  user: { canCreate: false, canEdit: false, canDelete: false, canAddAllocation: true, canView: true },
-  client: { canCreate: false, canEdit: false, canDelete: false, canAddAllocation: false, canView: true }
+  admin: { canCreate: true, canEdit: true, canDelete: true, canAddAllocation: true, canManageUsers: true, canView: true },
+  office: { canCreate: true, canEdit: true, canDelete: false, canAddAllocation: true, canManageUsers: false, canView: true },
+  user: { canCreate: false, canEdit: false, canDelete: false, canAddAllocation: true, canManageUsers: false, canView: true },
+  client: { canCreate: false, canEdit: false, canDelete: false, canAddAllocation: false, canManageUsers: false, canView: true }
 };
+
+// Get effective permissions for a user (base role + overrides)
+function getEffectivePermissions(user) {
+  const base = { ...ROLES[user.role] || ROLES.client };
+  try {
+    const dbUser = db.prepare('SELECT permissions FROM users WHERE username = ?').get(user.username);
+    if (dbUser && dbUser.permissions) {
+      const overrides = JSON.parse(dbUser.permissions);
+      Object.assign(base, overrides);
+    }
+  } catch(e) {}
+  return base;
+}
 
 const requireRole = (roles) => (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
@@ -149,16 +172,23 @@ app.post('/api/login', (req, res) => {
   const password = (req.body || {}).password || '';
   
   // Check database directly for active status
-  const dbUser = db.prepare('SELECT id, username, password, role, active FROM users WHERE username = ?').get(username);
+  const dbUser = db.prepare('SELECT id, username, password, role, active, first_name, last_name, permissions FROM users WHERE username = ?').get(username);
   
   if (dbUser && dbUser.password === password && dbUser.active !== 0) {
     const sid = Math.random().toString(36).slice(2);
     sessions[sid] = { username: dbUser.username, role: dbUser.role, id: dbUser.id };
-    res.json({ token: sid, user: { username: dbUser.username, role: dbUser.role } });
+    const perms = getEffectivePermissions({ username: dbUser.username, role: dbUser.role });
+    res.json({ token: sid, user: { username: dbUser.username, role: dbUser.role, first_name: dbUser.first_name, last_name: dbUser.last_name, permissions: perms } });
   } else { 
     console.log('Login failed for:', username);
     res.status(401).json({ error: 'Invalid credentials' }); 
   }
+});
+
+app.get('/api/me', requireAuth, (req, res) => {
+  const perms = getEffectivePermissions(req.user);
+  const dbUser = db.prepare('SELECT id, username, role, first_name, last_name, email FROM users WHERE username = ?').get(req.user.username);
+  res.json({ ...dbUser, permissions: perms });
 });
 
 app.post('/api/logout', (req, res) => {
@@ -167,18 +197,7 @@ app.post('/api/logout', (req, res) => {
   res.json({ success: true });
 });
 
-app.get('/api/me', (req, res) => {
-  if (req.user) {
-    // Get full user details from db
-    try {
-      const u = db.prepare('SELECT first_name, last_name FROM users WHERE username = ?').get(req.user.username);
-      const displayName = [u?.first_name, u?.last_name].filter(Boolean).join(' ') || req.user.username;
-      res.json({ user: { username: req.user.username, role: req.user.role, displayName } });
-    } catch(e) {
-      res.json({ user: { username: req.user.username, role: req.user.role, displayName: req.user.username } });
-    }
-  } else res.json({ user: null });
-});
+// Old /api/me removed - using new one with permissions above
 
 const requireAuth = (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
@@ -186,11 +205,13 @@ const requireAuth = (req, res, next) => {
 };
 
 // User management APIs
-app.get('/api/users', requireAuth, requireRole(['admin']), (req, res) => {
+app.get('/api/users', requireAuth, (req, res) => {
+  const perms = getEffectivePermissions(req.user);
+  if (req.user.role !== 'admin' && !perms.canManageUsers) return res.status(403).json({ error: 'Forbidden' });
   try {
     let users;
     try {
-      let sql = 'SELECT id, username, role, first_name, last_name, email, active, created_on FROM users WHERE 1=1';
+      let sql = 'SELECT id, username, role, first_name, last_name, email, active, permissions, created_on FROM users WHERE 1=1';
       if (req.query.status === 'active') { sql += ' AND active = 1'; }
       else if (req.query.status === 'inactive') { sql += ' AND active = 0'; }
       sql += ' ORDER BY username';
@@ -206,36 +227,33 @@ app.get('/api/users', requireAuth, requireRole(['admin']), (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/users', requireAuth, requireRole(['admin']), (req, res) => {
+app.post('/api/users', requireAuth, (req, res) => {
+  // Allow admin or users with canManageUsers permission
+  const perms = getEffectivePermissions(req.user);
+  if (req.user.role !== 'admin' && !perms.canManageUsers) return res.status(403).json({ error: 'Forbidden' });
   try {
-    const { username, password, role, first_name, last_name, email, active } = req.body || {};
+    const { username, password, role, first_name, last_name, email, active, permissions } = req.body || {};
     if (!username || !password || !role) return res.status(400).json({ error: 'Username, password and role required' });
     if (!ROLES[role]) return res.status(400).json({ error: 'Invalid role' });
-    const r = db.prepare('INSERT INTO users (username, password, role, first_name, last_name, email, active) VALUES (?, ?, ?, ?, ?, ?, ?)').run(username, password, role, first_name || '', last_name || '', email || '', active !== undefined ? (active ? 1 : 0) : 1);
-    // Update in-memory users cache
+    const permJson = permissions ? JSON.stringify(permissions) : '{}';
+    const r = db.prepare('INSERT INTO users (username, password, role, first_name, last_name, email, active, permissions) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(username, password, role, first_name || '', last_name || '', email || '', active !== undefined ? (active ? 1 : 0) : 1, permJson);
     users[username] = { password, role, id: r.lastInsertRowid };
     res.json({ id: r.lastInsertRowid, username, role });
   } catch(e) { res.status(400).json({ error: 'Username already exists or error' }); }
 });
 
-app.put('/api/users/:id', requireAuth, requireRole(['admin']), (req, res) => {
+app.put('/api/users/:id', requireAuth, (req, res) => {
+  const perms = getEffectivePermissions(req.user);
+  if (req.user.role !== 'admin' && !perms.canManageUsers) return res.status(403).json({ error: 'Forbidden' });
   try {
-    const { username, password, role, first_name, last_name, email, active } = req.body || {};
+    const { username, password, role, first_name, last_name, email, active, permissions } = req.body || {};
     if (!username || !role || !ROLES[role]) return res.status(400).json({ error: 'Invalid data' });
-    try {
-      if (password) {
-        db.prepare('UPDATE users SET username = ?, password = ?, role = ?, first_name = ?, last_name = ?, email = ?, active = ? WHERE id = ?').run(username, password, role, first_name || '', last_name || '', email || '', active !== undefined ? (active ? 1 : 0) : 1, req.params.id);
-      } else {
-        db.prepare('UPDATE users SET username = ?, role = ?, first_name = ?, last_name = ?, email = ?, active = ? WHERE id = ?').run(username, role, first_name || '', last_name || '', email || '', active !== undefined ? (active ? 1 : 0) : 1, req.params.id);
-      }
-    } catch(dbErr) {
-      if (password) {
-        db.prepare('UPDATE users SET username = ?, password = ?, role = ?, first_name = ?, last_name = ?, email = ? WHERE id = ?').run(username, password, role, first_name || '', last_name || '', email || '', req.params.id);
-      } else {
-        db.prepare('UPDATE users SET username = ?, role = ?, first_name = ?, last_name = ?, email = ? WHERE id = ?').run(username, role, first_name || '', last_name || '', email || '', req.params.id);
-      }
+    const permJson = permissions ? JSON.stringify(permissions) : '{}';
+    if (password) {
+      db.prepare('UPDATE users SET username = ?, password = ?, role = ?, first_name = ?, last_name = ?, email = ?, active = ?, permissions = ? WHERE id = ?').run(username, password, role, first_name || '', last_name || '', email || '', active !== undefined ? (active ? 1 : 0) : 1, permJson, req.params.id);
+    } else {
+      db.prepare('UPDATE users SET username = ?, role = ?, first_name = ?, last_name = ?, email = ?, active = ?, permissions = ? WHERE id = ?').run(username, role, first_name || '', last_name || '', email || '', active !== undefined ? (active ? 1 : 0) : 1, permJson, req.params.id);
     }
-    // Update in-memory users cache
     users[username] = { password: password || users[username]?.password, role, id: parseInt(req.params.id) };
     res.json({ success: true });
   } catch(e) { res.status(400).json({ error: e.message }); }
