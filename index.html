@@ -1646,7 +1646,8 @@ function showDrumList() {
           let msg = 'Imported: ' + r.results.imported + '\nSkipped: ' + r.results.skipped;
           if (r.results.errors.length > 0) msg += '\nErrors (' + r.results.errors.length + '):\n' + r.results.errors.slice(0, 10).join('\n');
           alert(msg);
-          document.querySelector('div[style*="position:fixed"]').remove();
+          var m = document.querySelector('div[style*="position:fixed"][style*="z-index"]');
+          if (m) m.remove();
           loadAll();
         } else {
           alert('Error: ' + (r.error || JSON.stringify(r)));
