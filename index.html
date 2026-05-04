@@ -2,7 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#64748b">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Drums">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon-192.png">
   <title>Cable Drum Register</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
@@ -71,6 +77,40 @@
     .detail-item { padding: 10px; background: #f8fafc; border-radius: 6px; }
     .detail-item label { display: block; font-size: 11px; color: #666; }
     .detail-item span { font-weight: 500; }
+  </style>
+  <style>
+    /* PWA Mobile Styles */
+    @media (max-width: 768px) {
+      body { padding: 10px; }
+      .container { padding: 0; }
+      h1 { font-size: 20px; }
+      .stats { gap: 10px; }
+      .stat { padding: 15px 10px; min-width: 100px; }
+      .stat h3 { font-size: 24px; }
+      .card { padding: 15px; }
+      .form-grid { grid-template-columns: 1fr; gap: 10px; }
+      .detail-grid { grid-template-columns: 1fr; }
+      .modal-content { padding: 20px; margin: 10px; }
+      .header { flex-direction: column; align-items: flex-start; }
+      .tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .tab { white-space: nowrap; padding: 12px 16px; font-size: 14px; }
+      table { font-size: 12px; }
+      th, td { padding: 8px 6px; }
+      button { padding: 14px 20px; font-size: 16px; min-height: 48px; }
+      input, select, textarea { padding: 14px; font-size: 16px; min-height: 48px; }
+      label { font-size: 14px; }
+      .filters { flex-direction: column; }
+      .filters select, .filters input { width: 100%; min-width: unset; }
+      .actions { flex-wrap: wrap; }
+      .drum-header { flex-direction: column; align-items: flex-start; }
+      .drum-header-stats { width: 100%; justify-content: space-around; }
+    }
+    /* Touch-friendly inputs */
+    input, select, textarea, button { -webkit-tap-highlight-color: transparent; }
+    /* Standalone PWA */
+    @media (display-mode: standalone) {
+      body { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+    }
   </style>
 </head>
 <body>
@@ -2004,6 +2044,11 @@ function showDrumList() {
         }
       }
     })();
+
+    // Register service worker for PWA
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').catch(err => console.log('SW registration failed:', err));
+    }
   </script>
 </body>
 </html>
