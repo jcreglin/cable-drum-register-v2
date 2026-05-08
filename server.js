@@ -616,7 +616,18 @@ app.post('/api/drums/import', requireRole(['admin']), (req, res) => {
         const outer = row.outer_end_reading !== '' ? parseFloat(row.outer_end_reading) : null;
         const calculated = (inner !== null && outer !== null) ? Math.abs(outer - inner) : null;
         const openingLength = row.opening_entry_length !== '' ? parseFloat(row.opening_entry_length) : calculated;
-        const remainingLength = calculated;
+        // Use calculated from inner/outer, or fall back to opening_entry_length
+        const remainingLength = calculated !== null ? calculated : openingLength;
+        
+        // Calculate value_on_hand if not provided: price_per_meter * remaining_length
+        let pricePerMeter = row.price_per_meter !== '' ? parseFloat(row.price_per_meter) : null;
+        let valueOnHand = row.value_on_hand !== '' ? parseFloat(row.value_on_hand) : null;
+        if (valueOnHand === null && pricePerMeter !== null && remainingLength !== null) {
+          valueOnHand = pricePerMeter * remainingLength;
+        }
+        
+        // Normalize manufacture_date (handle various formats)
+        let manufactureDate = row.manufacture_date || row.manufacture_date_ || row.manufactured || '';
         
         db.prepare(`INSERT INTO cable_drums (
           drum_number, client, drum_owner, cable_type, cable_count, sheath_colour, type,
@@ -628,10 +639,10 @@ app.post('/api/drums/import', requireRole(['admin']), (req, res) => {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`).run(
           row.drum_number, client, drumOwner, cableType, cableCount, sheathColour, category,
           inner, outer, openingLength, remainingLength,
-          row.price_per_meter !== '' ? parseFloat(row.price_per_meter) : null, row.value_on_hand !== '' ? parseFloat(row.value_on_hand) : null,
+          pricePerMeter, valueOnHand,
           row.audit_date, row.audit_by, row.status || 'Active', row.sign_status || 'Signed In',
           row.sign_out_to, row.sign_out_date, row.sign_in_date, project, row.project_drum_number,
-          row.batch_number, manufacturer, row.manufacture_date, row.status_reason, row.comments,
+          row.batch_number, manufacturer, manufactureDate, row.status_reason, row.comments,
           warehouse, row.warehouse_location
         );
 
