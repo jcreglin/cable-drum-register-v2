@@ -1,9 +1,25 @@
 const express = require('express');
 const Database = require('better-sqlite3');
 const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 
 const app = express();
 const PORT = 3040;
+
+// Setup multer for file uploads
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadsDir),
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  }
+});
+const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB limit
 
 // Increase payload limit for large file uploads (base64 images)
 app.use(express.json({ limit: '10mb' }));
@@ -28,6 +44,7 @@ app.use((req, res, next) => {
 });
 
 app.use(express.static(__dirname));
+app.use('/uploads', express.static(uploadsDir));
 
 const dbPath = process.env.DB_PATH || 'cabledrums.db';
 const db = new Database(dbPath);
@@ -780,6 +797,43 @@ app.post('/api/master-delete', requireRole(['admin']), (req, res) => {
   } catch(e) {
     console.error('Master delete error:', e.message);
     res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// Upload drum photo endpoint
+app.post('/api/drums/photo', requireAuth, (req, res) => {
+  try {
+    upload.single('photo')(req, res, (err) => {
+      if (err) {
+        console.error('Upload error:', err.message);
+        return res.status(400).json({ error: err.message });
+      }
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
+      // Return the filename so frontend can associate with drum
+      res.json({ filename: req.file.filename, originalName: req.file.originalname });
+    });
+  } catch(e) {
+    console.error('Photo upload error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Delete drum photo endpoint
+app.delete('/api/drums/photo/:filename', requireAuth, (req, res) => {
+  try {
+    const filename = req.params.filename;
+    const filePath = path.join(uploadsDir, filename);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      res.json({ success: true });
+    } else {
+      res.json({ success: true, message: 'File not found' });
+    }
+  } catch(e) {
+    console.error('Photo delete error:', e.message);
+    res.status(500).json({ error: e.message });
   }
 });
 

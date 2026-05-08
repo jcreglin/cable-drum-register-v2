@@ -971,6 +971,14 @@
     async function deleteDrumPhoto(id) {
       if (!confirm('Delete this photo?')) return;
       try {
+        // Get current drum to find filename
+        const drums = await (await call('/api/drums')).json();
+        const drum = drums.find(d => d.id === id);
+        if (drum && drum.drum_photo) {
+          // Delete file from server
+          await call('/api/drums/photo/' + drum.drum_photo, { method: 'DELETE' });
+        }
+        // Clear from database
         const r = await call('/api/drums/' + id, { method: 'PUT', body: JSON.stringify({ drum_photo: null }) });
         if (r.ok) {
           viewDrum(id);
@@ -1001,16 +1009,41 @@
 
     function closeModal() { document.getElementById('drumModal').classList.remove('show'); }
     
+    // Get image URL - handles both base64 (old) and filename (new)
+    function getDrumPhotoUrl(photo) {
+      if (!photo) return '';
+      // If it's a data URL (base64), use it directly
+      if (photo.startsWith('data:')) return photo;
+      // Otherwise assume it's a filename in /uploads
+      return '/uploads/' + photo;
+    }
+    
     // Handle drum photo file upload
-    document.getElementById('drum_photo').addEventListener('change', function(e) {
+    document.getElementById('drum_photo').addEventListener('change', async function(e) {
       const file = e.target.files[0];
       if (!file) return;
-      const reader = new FileReader();
-      reader.onload = function(evt) {
-        document.getElementById('drum_photo_url').value = evt.target.result;
-        document.getElementById('photo_preview').innerHTML = '<img src="' + evt.target.result + '" style="max-width:100px;max-height:100px;">';
-      };
-      reader.readAsDataURL(file);
+      
+      // Upload file to server
+      const formData = new FormData();
+      formData.append('photo', file);
+      
+      try {
+        const response = await fetch('/api/drums/photo', {
+          method: 'POST',
+          body: formData
+        });
+        if (!response.ok) {
+          const err = await response.json();
+          alert('Error uploading: ' + err.error);
+          return;
+        }
+        const result = await response.json();
+        // Store filename (not base64)
+        document.getElementById('drum_photo_url').value = result.filename;
+        document.getElementById('photo_preview').innerHTML = '<img src="/uploads/' + result.filename + '" style="max-width:100px;max-height:100px;">';
+      } catch(err) {
+        alert('Error uploading photo: ' + err.message);
+      }
     });
 
     async function editDrum(id) {
@@ -1049,7 +1082,7 @@
       document.getElementById('warehouse_location').value = d.warehouse_location || '';
       document.getElementById('drum_photo_url').value = d.drum_photo || '';
       document.getElementById('drum_photo').value = '';
-      document.getElementById('photo_preview').innerHTML = d.drum_photo ? '<img src="' + d.drum_photo + '" style="max-width:100px;max-height:100px;">' : '';
+      document.getElementById('photo_preview').innerHTML = d.drum_photo ? '<img src="' + getDrumPhotoUrl(d.drum_photo) + '" style="max-width:100px;max-height:100px;">' : '';
       document.getElementById('comments').value = d.comments || '';
       document.getElementById('drumModal').classList.add('show');
     }
@@ -1148,7 +1181,7 @@ function showDrumList() {
         <div style="display:flex; align-items:center; gap:15px; background:#fff; padding:15px 20px; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.1);">
           <button onclick="showDrumList()" style="width:fit-content;">← Back to List</button>
           <div style="flex:1;"><strong style="font-size:18px;">Drum No. ${d.drum_number || '-'}</strong> <span class="status-badge">${d.status || 'Active'}</span></div>
-          ${d.drum_photo ? `<img src="${d.drum_photo}" style="max-width:80px;max-height:80px;border-radius:8px;border:1px solid #ddd;cursor:pointer;" onclick="window.open('${d.drum_photo}', '_blank')">` : ''}
+          ${d.drum_photo ? `<img src="${getDrumPhotoUrl(d.drum_photo)}" style="max-width:80px;max-height:80px;border-radius:8px;border:1px solid #ddd;cursor:pointer;" onclick="window.open('${getDrumPhotoUrl(d.drum_photo)}', '_blank')">` : ''}
         </div>
         
         <div class="detail-grid">
