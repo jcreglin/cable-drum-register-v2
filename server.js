@@ -694,35 +694,28 @@ app.post('/api/restore', requireRole(['admin']), (req, res) => {
 // Full backup - database + uploads as a zip file
 app.get('/api/backup-full', requireRole(['admin']), (req, res) => {
   try {
-    const archiver = require('archiver');
-    const tempZip = '/tmp/backup-' + Date.now() + '.zip';
-    const output = fs.createWriteStream(tempZip);
-    const archive = archiver('zip', { zlib: { level: 9 } });
-    
-    output.on('close', () => {
-      const zipData = fs.readFileSync(tempZip);
-      res.setHeader('Content-Type', 'application/zip');
-      res.setHeader('Content-Disposition', 'attachment; filename=backup-' + new Date().toISOString().split('T')[0] + '.zip');
-      res.send(zipData);
-      fs.unlinkSync(tempZip);
-    });
-    
-    archive.on('error', (err) => { throw err; });
-    archive.pipe(output);
+    const AdmZip = require('adm-zip');
+    const zip = new AdmZip();
     
     // Add database file
     if (fs.existsSync(dbPath)) {
-      archive.file(dbPath, { name: 'cabledrums.db' });
+      zip.addLocalFile(dbPath, '', 'cabledrums.db');
     }
     
     // Add uploads folder
     if (fs.existsSync(uploadsDir)) {
-      archive.directory(uploadsDir, 'uploads');
+      const uploadFiles = fs.readdirSync(uploadsDir);
+      uploadFiles.forEach(f => {
+        zip.addLocalFile(path.join(uploadsDir, f), 'uploads');
+      });
     }
     
-    archive.finalize();
+    const zipBuffer = zip.toBuffer();
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename=backup-' + new Date().toISOString().split('T')[0] + '.zip');
+    res.send(zipBuffer);
   } catch(e) {
-    console.error('Full backup error:', e.message);
+    console.error('Full backup error:', e.message, e.stack);
     res.status(500).json({ error: e.message });
   }
 });
