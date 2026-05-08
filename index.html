@@ -992,6 +992,7 @@
     }
     
     function clearDrumPhoto() {
+      skipPhotoChange = true;
       document.getElementById('drum_photo').value = '';
       document.getElementById('drum_photo_url').value = '';
       document.getElementById('photo_preview').innerHTML = '';
@@ -1021,8 +1022,11 @@
       return '/uploads/' + photo;
     }
     
+    let skipPhotoChange = false;
+    
     // Handle drum photo file upload
     document.getElementById('drum_photo').addEventListener('change', async function(e) {
+      if (skipPhotoChange) { skipPhotoChange = false; return; }
       const file = e.target.files[0];
       if (!file) return;
       
@@ -1086,6 +1090,8 @@
       document.getElementById('warehouse').value = d.warehouse || '';
       document.getElementById('warehouse_location').value = d.warehouse_location || '';
       document.getElementById('drum_photo_url').value = d.drum_photo || '';
+      // Clear file input WITHOUT triggering change event
+      skipPhotoChange = true;
       document.getElementById('drum_photo').value = '';
       document.getElementById('photo_preview').innerHTML = d.drum_photo ? '<img src="' + getDrumPhotoUrl(d.drum_photo) + '" style="max-width:100px;max-height:100px;">' : '';
       document.getElementById('comments').value = d.comments || '';
