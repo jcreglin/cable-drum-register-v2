@@ -165,6 +165,9 @@
         <button onclick="backupDatabase()" id="backupBtn" class="success small" style="display:none;">💾 Backup DB</button>
         <button onclick="document.getElementById('restoreFile').click()" id="restoreBtn" class="small" style="display:none;">📤 Restore DB</button>
         <input type="file" id="restoreFile" accept=".db" style="display:none;" onchange="restoreDatabase()">
+        <button onclick="backupFull()" id="backupFullBtn" class="success small" style="display:none;">💾 Full Backup</button>
+        <button onclick="document.getElementById('restoreFullFile').click()" id="restoreFullBtn" class="small" style="display:none;">📤 Full Restore</button>
+        <input type="file" id="restoreFullFile" accept=".zip" style="display:none;" onchange="restoreFull()">
       </div>
     </div>
 
@@ -1762,6 +1765,8 @@ function showDrumList() {
               document.getElementById('masterDeleteBtn').style.display = 'inline-block';
               document.getElementById('backupBtn').style.display = 'inline-block';
               document.getElementById('restoreBtn').style.display = 'inline-block';
+              document.getElementById('backupFullBtn').style.display = 'inline-block';
+              document.getElementById('restoreFullBtn').style.display = 'inline-block';
             }
             // Show users tab for admin or users with canManageUsers
             if (currentUserRole === 'admin' || currentUserPerms.canManageUsers) {
@@ -1919,6 +1924,44 @@ function showDrumList() {
         reader.readAsDataURL(file);
       } catch(e) { alert('Restore error: ' + e.message); }
       document.getElementById('restoreFile').value = '';
+    }
+
+    async function backupFull() {
+      try {
+        const r = await fetch('/api/backup-full', { headers: { 'Authorization': token || '' } });
+        if (!r.ok) { alert('Backup failed'); return; }
+        const blob = await r.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'cabledrums-full-backup-' + new Date().toISOString().slice(0,10) + '.zip';
+        a.click();
+      } catch(e) { alert('Backup error: ' + e.message); }
+    }
+
+    async function restoreFull() {
+      const file = document.getElementById('restoreFullFile').files[0];
+      if (!file) return;
+      if (!confirm('This will replace the current database AND upload all images. Continue?')) {
+        document.getElementById('restoreFullFile').value = '';
+        return;
+      }
+      try {
+        const formData = new FormData();
+        formData.append('backup', file);
+        const resp = await fetch('/api/restore-full', {
+          method: 'POST',
+          headers: { 'Authorization': token || '' },
+          body: formData
+        });
+        const r = await resp.json();
+        if (r.success) {
+          alert('Full backup restored! Page will reload.');
+          setTimeout(() => location.reload(), 2000);
+        } else {
+          alert('Restore failed: ' + (r.error || 'Unknown error'));
+        }
+      } catch(e) { alert('Restore error: ' + e.message); }
+      document.getElementById('restoreFullFile').value = '';
     }
 
     async function masterDelete() {

@@ -691,6 +691,89 @@ app.post('/api/restore', requireRole(['admin']), (req, res) => {
   }
 });
 
+// Full backup - database + uploads as a zip file
+app.get('/api/backup-full', requireRole(['admin']), (req, res) => {
+  try {
+    const archiver = require('archiver');
+    const tempZip = '/tmp/backup-' + Date.now() + '.zip';
+    const output = fs.createWriteStream(tempZip);
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    
+    output.on('close', () => {
+      const zipData = fs.readFileSync(tempZip);
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', 'attachment; filename=backup-' + new Date().toISOString().split('T')[0] + '.zip');
+      res.send(zipData);
+      fs.unlinkSync(tempZip);
+    });
+    
+    archive.on('error', (err) => { throw err; });
+    archive.pipe(output);
+    
+    // Add database file
+    if (fs.existsSync(dbPath)) {
+      archive.file(dbPath, { name: 'cabledrums.db' });
+    }
+    
+    // Add uploads folder
+    if (fs.existsSync(uploadsDir)) {
+      archive.directory(uploadsDir, 'uploads');
+    }
+    
+    archive.finalize();
+  } catch(e) {
+    console.error('Full backup error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Full restore - upload a zip file with database + uploads
+app.post('/api/restore-full', requireRole(['admin']), upload.single('backup'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No backup file uploaded' });
+    }
+    
+    const tempZip = req.file.path;
+    const extractDir = '/tmp/restore-' + Date.now();
+    fs.mkdirSync(extractDir, { recursive: true });
+    
+    // Extract zip
+    const AdmZip = require('adm-zip');
+    const zip = new AdmZip(tempZip);
+    zip.extractAllTo(extractDir, true);
+    
+    // Restore database
+    const extractedDb = path.join(extractDir, 'cabledrums.db');
+    if (fs.existsSync(extractedDb)) {
+      db.close();
+      fs.copyFileSync(extractedDb, dbPath);
+    }
+    
+    // Restore uploads
+    const extractedUploads = path.join(extractDir, 'uploads');
+    if (fs.existsSync(extractedUploads)) {
+      // Clear existing uploads and copy new ones
+      if (fs.existsSync(uploadsDir)) {
+        fs.readdirSync(uploadsDir).forEach(f => fs.unlinkSync(path.join(uploadsDir, f)));
+      }
+      fs.readdirSync(extractedUploads).forEach(f => {
+        fs.copyFileSync(path.join(extractedUploads, f), path.join(uploadsDir, f));
+      });
+    }
+    
+    // Cleanup
+    fs.unlinkSync(tempZip);
+    fs.rmSync(extractDir, { recursive: true, force: true });
+    
+    res.json({ success: true, message: 'Full backup restored. The server will restart to apply changes.' });
+    setTimeout(() => process.exit(0), 1000);
+  } catch(e) {
+    console.error('Full restore error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Allocation import endpoint
 app.post('/api/allocations/import', requireRole(['admin']), (req, res) => {
   try {
