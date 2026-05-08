@@ -500,13 +500,15 @@ app.get('/api/drums/export', requireAuth, (req, res) => {
 
 const ensureLookupValue = (table, value) => {
   if (!value) return null;
+  const cleanValue = String(value).trim();
+  if (!cleanValue) return null;
   try {
-    const exists = db.prepare('SELECT id FROM ' + table + ' WHERE name = ?').get(value);
-    if (exists) return value;
-    db.prepare('INSERT INTO ' + table + ' (name) VALUES (?)').run(value);
-    return value;
+    const exists = db.prepare('SELECT id FROM ' + table + ' WHERE name = ?').get(cleanValue);
+    if (exists) return cleanValue;
+    db.prepare('INSERT INTO ' + table + ' (name) VALUES (?)').run(cleanValue);
+    return cleanValue;
   } catch(e) {
-    return value;
+    return cleanValue;
   }
 };
 
@@ -589,7 +591,10 @@ app.post('/api/drums/import', requireRole(['admin']), (req, res) => {
       try {
         const values = parseCsvLine(lines[i]);
         const row = {};
-        headers.forEach((h, idx) => { row[h] = values[idx] || ''; });
+        headers.forEach((h, idx) => {
+          const v = values[idx];
+          row[h] = typeof v === 'string' ? v.trim() : (v || '');
+        });
         
         let drumNumber = row.drum_number;
         const existing = db.prepare('SELECT id FROM cable_drums WHERE drum_number = ?').get(drumNumber);
