@@ -5,7 +5,7 @@ const fs = require('fs');
 const multer = require('multer');
 
 const app = express();
-const PORT = 3040;
+const PORT = process.env.PORT || 3040;
 
 // Setup multer for file uploads
 const uploadsDir = path.join(__dirname, 'uploads');
