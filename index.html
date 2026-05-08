@@ -1072,14 +1072,15 @@
       document.getElementById('status').value = d.status || 'Active';
       document.getElementById('sign_out_to').value = d.sign_out_to || '';
       document.getElementById('sign_status').value = d.sign_status || 'Signed In';
-      document.getElementById('sign_out_date').value = d.sign_out_date || '';
-      document.getElementById('sign_in_date').value = d.sign_in_date || '';
+      document.getElementById('sign_out_date').value = d.sign_out_date ? d.sign_out_date.split('T')[0].split(' ')[0] : '';
+      document.getElementById('sign_in_date').value = d.sign_in_date ? d.sign_in_date.split('T')[0].split(' ')[0] : '';
       document.getElementById('project_allocation').value = d.project_allocation || '';
       document.getElementById('project_drum_number').value = d.project_drum_number || '';
       document.getElementById('batch_number').value = d.batch_number || '';
       document.getElementById('manufacturer').value = d.manufacturer || '';
-      document.getElementById('manufacture_date').value = d.manufacture_date || '';
-      document.getElementById('audit_date').value = d.audit_date || '';
+      // Normalize dates to YYYY-MM-DD for HTML date inputs
+      document.getElementById('manufacture_date').value = d.manufacture_date ? d.manufacture_date.split('T')[0].split(' ')[0] : '';
+      document.getElementById('audit_date').value = d.audit_date ? d.audit_date.split('T')[0].split(' ')[0] : '';
       document.getElementById('audit_by').value = d.audit_by || '';
       document.getElementById('status_reason').value = d.status_reason || '';
       document.getElementById('warehouse').value = d.warehouse || '';
