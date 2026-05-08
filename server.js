@@ -21,6 +21,13 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB limit
 
+// Separate multer for backup restore (uses /tmp)
+const restoreStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, '/tmp'),
+  filename: (req, file, cb) => cb(null, 'restore-' + Date.now() + '.zip')
+});
+const uploadRestore = multer({ storage: restoreStorage, limits: { fileSize: 50 * 1024 * 1024 } }); // 50MB for restores
+
 // Increase payload limit for large file uploads (base64 images)
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
@@ -721,7 +728,7 @@ app.get('/api/backup-full', requireRole(['admin']), (req, res) => {
 });
 
 // Full restore - upload a zip file with database + uploads
-app.post('/api/restore-full', requireRole(['admin']), upload.single('backup'), (req, res) => {
+app.post('/api/restore-full', requireRole(['admin']), uploadRestore.single('backup'), (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No backup file uploaded' });
