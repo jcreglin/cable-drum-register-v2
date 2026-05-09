@@ -580,6 +580,7 @@
       await loadStats();
       await loadDrums();
       await loadLookups();
+      lookupsLoaded = true;
       if (currentUserRole === 'client') await loadClientFilterOptions();
       loadLookupTable('clients', 'active');
       await loadProjects();
@@ -753,6 +754,7 @@
         loadLookupTable(apiTable, lookupFilters[apiTable] || 'active');
         // Refresh form dropdowns to show/hide archived items
         await loadLookups();
+        lookupsLoaded = true;
       } catch(e) { alert('Error: ' + e.message); }
     }
     
@@ -1095,7 +1097,14 @@
       }
     });
 
+    let lookupsLoaded = false;
+    
     async function editDrum(id) {
+      // Ensure lookups are loaded before trying to set select values
+      if (!lookupsLoaded) {
+        await loadLookups();
+        lookupsLoaded = true;
+      }
       const drums = await (await call('/api/drums')).json();
       const d = drums.find(x => x.id === id);
       if (!d) return;
