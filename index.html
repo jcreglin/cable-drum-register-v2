@@ -1021,6 +1021,18 @@
       reader.readAsDataURL(file);
     });
 
+    function ensureSelectHasValue(selectId, value) {
+      const select = document.getElementById(selectId);
+      if (!select || !value) return;
+      if (!Array.from(select.options).some(opt => opt.value === value)) {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = value;
+        select.appendChild(option);
+      }
+      select.value = value;
+    }
+
     async function editDrum(id) {
       await loadLookups(); // Ensure dropdown options are loaded before setting values
       const drums = await (await call('/api/drums')).json();
@@ -1029,32 +1041,32 @@
       editingId = id;
       document.getElementById('modalTitle').textContent = 'Edit Drum';
       document.getElementById('drum_number').value = d.drum_number || '';
-      document.getElementById('client').value = d.client || '';
-      document.getElementById('drum_owner').value = d.drum_owner || '';
-      document.getElementById('cable_type').value = d.cable_type || '';
-      document.getElementById('cable_count').value = d.cable_count || '';
-      document.getElementById('sheath_colour').value = d.sheath_colour || '';
-      document.getElementById('type').value = d.type || '';
+      ensureSelectHasValue('client', d.client || '');
+      ensureSelectHasValue('drum_owner', d.drum_owner || '');
+      ensureSelectHasValue('cable_type', d.cable_type || '');
+      ensureSelectHasValue('cable_count', d.cable_count || '');
+      ensureSelectHasValue('sheath_colour', d.sheath_colour || '');
+      ensureSelectHasValue('type', d.type || '');
       document.getElementById('inner_end_reading').value = d.inner_end_reading || '';
       document.getElementById('outer_end_reading').value = d.outer_end_reading || '';
       document.getElementById('opening_entry_length').value = d.opening_entry_length || '';
       document.getElementById('remaining_length').value = d.remaining_length || '';
       document.getElementById('price_per_meter').value = d.price_per_meter || '';
       document.getElementById('value_on_hand').value = d.value_on_hand || '';
-      document.getElementById('status').value = d.status || 'Active';
+      ensureSelectHasValue('status', d.status || 'Active');
       document.getElementById('sign_out_to').value = d.sign_out_to || '';
-      document.getElementById('sign_status').value = d.sign_status || 'Signed In';
+      ensureSelectHasValue('sign_status', d.sign_status || 'Signed In');
       document.getElementById('sign_out_date').value = d.sign_out_date || '';
       document.getElementById('sign_in_date').value = d.sign_in_date || '';
-      document.getElementById('project_allocation').value = d.project_allocation || '';
+      ensureSelectHasValue('project_allocation', d.project_allocation || '');
       document.getElementById('project_drum_number').value = d.project_drum_number || '';
       document.getElementById('batch_number').value = d.batch_number || '';
-      document.getElementById('manufacturer').value = d.manufacturer || '';
+      ensureSelectHasValue('manufacturer', d.manufacturer || '');
       document.getElementById('manufacture_date').value = d.manufacture_date || '';
       document.getElementById('audit_date').value = d.audit_date || '';
       document.getElementById('audit_by').value = d.audit_by || '';
       document.getElementById('status_reason').value = d.status_reason || '';
-      document.getElementById('warehouse').value = d.warehouse || '';
+      ensureSelectHasValue('warehouse', d.warehouse || '');
       document.getElementById('warehouse_location').value = d.warehouse_location || '';
       document.getElementById('drum_photo_url').value = d.drum_photo || '';
       document.getElementById('drum_photo').value = '';
