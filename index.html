@@ -1014,6 +1014,7 @@
     });
 
     async function editDrum(id) {
+      await loadLookups(); // Ensure dropdown options are loaded before setting values
       const drums = await (await call('/api/drums')).json();
       const d = drums.find(x => x.id === id);
       if (!d) return;
