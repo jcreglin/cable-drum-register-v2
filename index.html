@@ -606,8 +606,12 @@
           // Also populate form dropdown for client users
           const formEl = document.getElementById(m.formId);
           if (formEl) {
+            const currentValue = formEl.value;
             formEl.innerHTML = '<option value="">Select ' + m.label.replace(/s$/, '') + '</option>' +
               values.map(v => '<option value="' + v + '">' + v + '</option>').join('');
+            if (currentValue && Array.from(formEl.options).some(opt => opt.value === currentValue)) {
+              formEl.value = currentValue;
+            }
           }
         });
       } catch(e) { console.error('Filter options error:', e); }
@@ -790,8 +794,12 @@
         // Populate form dropdown (only unarchived)
         const formSelect = document.getElementById(map.form);
         if (formSelect) {
+          const currentValue = formSelect.value;
           formSelect.innerHTML = '<option value="">Select ' + map.label.replace(/s$/, '') + '</option>' + 
             data.filter(x => !x.archived).map(x => `<option value="${x.name}">${x.name}</option>`).join('');
+          if (currentValue && Array.from(formSelect.options).some(opt => opt.value === currentValue)) {
+            formSelect.value = currentValue;
+          }
         }
       }
     }
@@ -2018,9 +2026,9 @@ function showDrumList() {
           document.getElementById('importStep3').style.display = 'block';
           
           if (result.imported > 0) {
-            setTimeout(() => {
+            setTimeout(async () => {
+              await loadAll();
               document.getElementById('importModal').classList.remove('show');
-              loadAll();
             }, 2000);
           }
         } else {
