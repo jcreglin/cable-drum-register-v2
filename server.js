@@ -6,8 +6,8 @@ const app = express();
 const PORT = 3040;
 
 // Increase payload limit for large file uploads (base64 images)
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ limit: '10mb', extended: true }));
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ limit: '25mb', extended: true }));
 
 // CORS headers
 app.use((req, res, next) => {

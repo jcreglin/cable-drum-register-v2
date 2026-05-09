@@ -910,6 +910,42 @@
       if (statusEl) statusEl.textContent = message;
     }
 
+    function loadImageFromDataUrl(dataUrl) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = dataUrl;
+      });
+    }
+
+    async function optimiseDrumPhoto(file, dataUrl) {
+      const img = await loadImageFromDataUrl(dataUrl);
+      const maxDim = 1600;
+      let { width, height } = img;
+      if (width > maxDim || height > maxDim) {
+        const scale = Math.min(maxDim / width, maxDim / height);
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+
+      let output = dataUrl;
+      let quality = 0.82;
+      if (file.type !== 'image/png' || file.size > 2 * 1024 * 1024) {
+        output = canvas.toDataURL('image/jpeg', quality);
+        while (output.length > 3.5 * 1024 * 1024 && quality > 0.45) {
+          quality -= 0.08;
+          output = canvas.toDataURL('image/jpeg', quality);
+        }
+      }
+      return output;
+    }
+
     async function saveDrum() {
       if (drumPhotoProcessing) {
         alert('Image is still processing. Please wait a moment and try save again.');
@@ -1044,11 +1080,22 @@
       const readToken = ++drumPhotoReadToken;
       setDrumPhotoProcessing(true, 'Processing image...');
       const reader = new FileReader();
-      reader.onload = function(evt) {
+      reader.onload = async function(evt) {
         if (readToken !== drumPhotoReadToken) return;
-        document.getElementById('drum_photo_url').value = evt.target.result;
-        document.getElementById('photo_preview').innerHTML = '<img src="' + evt.target.result + '" style="max-width:100px;max-height:100px;">';
-        setDrumPhotoProcessing(false, 'Image ready');
+        try {
+          setDrumPhotoProcessing(true, 'Optimising image...');
+          const optimised = await optimiseDrumPhoto(file, evt.target.result);
+          if (readToken !== drumPhotoReadToken) return;
+          document.getElementById('drum_photo_url').value = optimised;
+          document.getElementById('photo_preview').innerHTML = '<img src="' + optimised + '" style="max-width:100px;max-height:100px;">';
+          setDrumPhotoProcessing(false, 'Image ready');
+        } catch (err) {
+          if (readToken !== drumPhotoReadToken) return;
+          document.getElementById('drum_photo_url').value = '';
+          document.getElementById('photo_preview').innerHTML = '';
+          setDrumPhotoProcessing(false, 'Image failed to load');
+          alert('Failed to process image. Please try again.');
+        }
       };
       reader.onerror = function() {
         if (readToken !== drumPhotoReadToken) return;
