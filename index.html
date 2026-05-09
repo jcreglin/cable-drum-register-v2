@@ -344,6 +344,7 @@
           <label>Warehouse Location</label><input type="text" id="warehouse_location" placeholder="Warehouse Location">
           <label>Drum Photo</label><input type="file" id="drum_photo" accept="image/*">
           <input type="hidden" id="drum_photo_url">
+          <div id="photo_status" style="margin-top:5px;font-size:12px;color:#666;"></div>
           <div id="photo_preview" style="margin-top:5px;"></div>
           <button type="button" class="danger small" onclick="clearDrumPhoto()" style="margin-top:5px;">Delete Image</button>
         </div>
@@ -352,7 +353,7 @@
           <label>Comments</label><textarea id="comments" placeholder="Comments" rows="3"></textarea>
         </div>
       </div>
-      <button onclick="saveDrum()" class="success">Save</button>
+      <button onclick="saveDrum()" class="success" id="saveDrumBtn">Save</button>
       <button class="secondary" onclick="closeModal()">Cancel</button>
     </div>
   </div>
@@ -898,7 +899,22 @@
       }
     }
 
+    let drumPhotoReadToken = 0;
+    let drumPhotoProcessing = false;
+
+    function setDrumPhotoProcessing(isProcessing, message = '') {
+      drumPhotoProcessing = isProcessing;
+      const saveBtn = document.getElementById('saveDrumBtn');
+      const statusEl = document.getElementById('photo_status');
+      if (saveBtn) saveBtn.disabled = isProcessing;
+      if (statusEl) statusEl.textContent = message;
+    }
+
     async function saveDrum() {
+      if (drumPhotoProcessing) {
+        alert('Image is still processing. Please wait a moment and try save again.');
+        return;
+      }
       const data = {
         drum_number: document.getElementById('drum_number').value,
         client: document.getElementById('client').value,
@@ -989,6 +1005,8 @@
     }
     
     function clearDrumPhoto() {
+      drumPhotoReadToken++;
+      setDrumPhotoProcessing(false, '');
       document.getElementById('drum_photo').value = '';
       document.getElementById('drum_photo_url').value = '';
       document.getElementById('photo_preview').innerHTML = '';
@@ -998,6 +1016,9 @@
       editingId = null;
       document.getElementById('modalTitle').textContent = 'Add Drum';
       document.querySelectorAll('#drumModal input, #drumModal select, #drumModal textarea').forEach(el => el.value = '');
+      drumPhotoReadToken++;
+      setDrumPhotoProcessing(false, '');
+      document.getElementById('photo_preview').innerHTML = '';
       document.getElementById('drumModal').classList.add('show');
     }
 
@@ -1007,16 +1028,34 @@
       document.getElementById('remaining_length').value = Math.abs(outer - inner);
     }
 
-    function closeModal() { document.getElementById('drumModal').classList.remove('show'); }
+    function closeModal() {
+      drumPhotoReadToken++;
+      setDrumPhotoProcessing(false, '');
+      document.getElementById('drumModal').classList.remove('show');
+    }
     
     // Handle drum photo file upload
     document.getElementById('drum_photo').addEventListener('change', function(e) {
       const file = e.target.files[0];
-      if (!file) return;
+      if (!file) {
+        setDrumPhotoProcessing(false, '');
+        return;
+      }
+      const readToken = ++drumPhotoReadToken;
+      setDrumPhotoProcessing(true, 'Processing image...');
       const reader = new FileReader();
       reader.onload = function(evt) {
+        if (readToken !== drumPhotoReadToken) return;
         document.getElementById('drum_photo_url').value = evt.target.result;
         document.getElementById('photo_preview').innerHTML = '<img src="' + evt.target.result + '" style="max-width:100px;max-height:100px;">';
+        setDrumPhotoProcessing(false, 'Image ready');
+      };
+      reader.onerror = function() {
+        if (readToken !== drumPhotoReadToken) return;
+        document.getElementById('drum_photo_url').value = '';
+        document.getElementById('photo_preview').innerHTML = '';
+        setDrumPhotoProcessing(false, 'Image failed to load');
+        alert('Failed to process image. Please try again.');
       };
       reader.readAsDataURL(file);
     });
@@ -1070,6 +1109,7 @@
       document.getElementById('warehouse_location').value = d.warehouse_location || '';
       document.getElementById('drum_photo_url').value = d.drum_photo || '';
       document.getElementById('drum_photo').value = '';
+      setDrumPhotoProcessing(false, d.drum_photo ? 'Existing image loaded' : '');
       document.getElementById('photo_preview').innerHTML = d.drum_photo ? '<img src="' + d.drum_photo + '" style="max-width:100px;max-height:100px;">' : '';
       document.getElementById('comments').value = d.comments || '';
       document.getElementById('drumModal').classList.add('show');
