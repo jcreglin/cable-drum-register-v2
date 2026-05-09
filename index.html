@@ -342,7 +342,7 @@
           <h3>Location</h3>
           <label>Warehouse</label><select id="warehouse"><option value="">Select Warehouse</option></select>
           <label>Warehouse Location</label><input type="text" id="warehouse_location" placeholder="Warehouse Location">
-          <label>Drum Photo</label><input type="file" id="drum_photo" accept="image/*">
+          <label>Drum Photo</label><input type="file" id="drum_photo" accept="image/*" onchange="handleDrumPhotoChange(event)">
           <input type="hidden" id="drum_photo_url">
           <div id="photo_status" style="margin-top:5px;font-size:12px;color:#666;"></div>
           <div id="photo_preview" style="margin-top:5px;"></div>
@@ -1071,41 +1071,58 @@
     }
     
     // Handle drum photo file upload
-    document.getElementById('drum_photo').addEventListener('change', function(e) {
+    async function handleDrumPhotoChange(e) {
       const file = e.target.files[0];
       if (!file) {
         setDrumPhotoProcessing(false, '');
         return;
       }
+
       const readToken = ++drumPhotoReadToken;
-      setDrumPhotoProcessing(true, 'Processing image...');
+      const objectUrl = URL.createObjectURL(file);
+      document.getElementById('photo_preview').innerHTML = '<img src="' + objectUrl + '" style="max-width:100px;max-height:100px;">';
+      setDrumPhotoProcessing(true, 'Loading image...');
+
       const reader = new FileReader();
       reader.onload = async function(evt) {
-        if (readToken !== drumPhotoReadToken) return;
+        if (readToken !== drumPhotoReadToken) {
+          URL.revokeObjectURL(objectUrl);
+          return;
+        }
         try {
           setDrumPhotoProcessing(true, 'Optimising image...');
           const optimised = await optimiseDrumPhoto(file, evt.target.result);
-          if (readToken !== drumPhotoReadToken) return;
+          if (readToken !== drumPhotoReadToken) {
+            URL.revokeObjectURL(objectUrl);
+            return;
+          }
           document.getElementById('drum_photo_url').value = optimised;
           document.getElementById('photo_preview').innerHTML = '<img src="' + optimised + '" style="max-width:100px;max-height:100px;">';
           setDrumPhotoProcessing(false, 'Image ready');
+          URL.revokeObjectURL(objectUrl);
         } catch (err) {
-          if (readToken !== drumPhotoReadToken) return;
-          document.getElementById('drum_photo_url').value = '';
-          document.getElementById('photo_preview').innerHTML = '';
-          setDrumPhotoProcessing(false, 'Image failed to load');
-          alert('Failed to process image. Please try again.');
+          if (readToken !== drumPhotoReadToken) {
+            URL.revokeObjectURL(objectUrl);
+            return;
+          }
+          document.getElementById('drum_photo_url').value = evt.target.result;
+          setDrumPhotoProcessing(false, 'Image ready (original)');
+          URL.revokeObjectURL(objectUrl);
         }
       };
       reader.onerror = function() {
-        if (readToken !== drumPhotoReadToken) return;
+        if (readToken !== drumPhotoReadToken) {
+          URL.revokeObjectURL(objectUrl);
+          return;
+        }
         document.getElementById('drum_photo_url').value = '';
         document.getElementById('photo_preview').innerHTML = '';
         setDrumPhotoProcessing(false, 'Image failed to load');
-        alert('Failed to process image. Please try again.');
+        URL.revokeObjectURL(objectUrl);
+        alert('Failed to read image. Please try again.');
       };
       reader.readAsDataURL(file);
-    });
+    }
 
     function ensureSelectHasValue(selectId, value) {
       const select = document.getElementById(selectId);
