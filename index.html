@@ -198,7 +198,6 @@
         <table>
           <thead>
             <tr>
-              <th style="width:52px;">Photo</th>
               <th onclick="setSort('drum_number', this)" style="cursor:pointer;">Drum #</th>
               <th>Sign</th>
               <th onclick="setSort('client', this)" style="cursor:pointer;">Client</th>
@@ -717,7 +716,6 @@
 
       document.getElementById('drumsList').innerHTML = drums.map(d => `
         <tr onclick="viewDrum(${d.id})" style="cursor:pointer;">
-          <td style="padding:6px 8px; width:52px;">${d.drum_photo ? `<img src="${getDrumPhotoUrl(d.drum_photo)}" loading="lazy" decoding="async" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid #ddd;display:block;">` : `<div style="width:36px;height:36px;border-radius:6px;border:1px solid #e5e7eb;background:#f8fafc;"></div>`}</td>
           <td>${d.drum_number || '-'}</td>
           <td onclick="event.stopPropagation()"><button class="small" style="background:${d.sign_status === 'Signed Out' ? '#ef4444' : '#22c55e'};color:${d.sign_status === 'Signed Out' ? '#fff' : '#fff'};" onclick="toggleSign(${d.id}, event)">${d.sign_status === 'Signed Out' ? 'Sign In' : 'Sign Out'}</button></td>
           <td>${d.client || '-'}</td><td>${d.drum_owner || '-'}</td>
