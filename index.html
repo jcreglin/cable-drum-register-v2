@@ -1323,7 +1323,7 @@
     
 function showDrumList() {
       document.getElementById('drumDetail').style.display = 'none';
-      location.reload();
+      // Just hide the detail view, don't reload - keeps filters intact
     }
     
     async function viewDrum(id) {
