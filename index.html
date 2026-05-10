@@ -775,6 +775,15 @@
         'warehouses': { filter: 'filterWarehouse', form: 'warehouse', label: 'Warehouses' }
       };
       
+      // Save current filter values before repopulating
+      const savedFilters = {};
+      Object.values(mapping).forEach(m => {
+        if (m.filter) {
+          const el = document.getElementById(m.filter);
+          if (el) savedFilters[m.filter] = el.value;
+        }
+      });
+      
       // Load all lookups with active filter
       for (const table of tables) {
         await loadLookupTable(table, 'active');
@@ -792,6 +801,13 @@
           if (filterSelect) {
             filterSelect.innerHTML = '<option value="">All ' + map.label + '</option>' + 
               data.map(x => `<option value="${x.name}">${x.name}</option>`).join('');
+            // Restore saved filter value if it still exists in the options
+            if (savedFilters[map.filter]) {
+              const options = Array.from(filterSelect.options).map(o => o.value);
+              if (options.includes(savedFilters[map.filter])) {
+                filterSelect.value = savedFilters[map.filter];
+              }
+            }
           }
         }
         
