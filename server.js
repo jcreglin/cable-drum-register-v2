@@ -1,11 +1,26 @@
 const express = require('express');
 const Database = require('better-sqlite3');
 const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 
 const app = express();
 const PORT = 3040;
 
-// Increase payload limit for large file uploads (base64 images)
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadsDir),
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  }
+});
+const upload = multer({ storage, limits: { fileSize: 25 * 1024 * 1024 } });
+
+// Increase payload limit for larger requests
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ limit: '25mb', extended: true }));
 
@@ -27,6 +42,7 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use('/uploads', express.static(uploadsDir));
 app.use(express.static(__dirname));
 
 const dbPath = process.env.DB_PATH || 'cabledrums.db';
@@ -780,6 +796,40 @@ app.post('/api/master-delete', requireRole(['admin']), (req, res) => {
   } catch(e) {
     console.error('Master delete error:', e.message);
     res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.post('/api/drums/photo', requireAuth, (req, res) => {
+  try {
+    upload.single('photo')(req, res, (err) => {
+      if (err) {
+        console.error('Upload error:', err.message);
+        return res.status(400).json({ error: err.message });
+      }
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
+      res.json({ filename: req.file.filename, originalName: req.file.originalname });
+    });
+  } catch(e) {
+    console.error('Photo upload error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/drums/photo/:filename', requireAuth, (req, res) => {
+  try {
+    const filename = req.params.filename;
+    const filePath = path.join(uploadsDir, filename);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      res.json({ success: true });
+    } else {
+      res.json({ success: true, message: 'File not found' });
+    }
+  } catch(e) {
+    console.error('Photo delete error:', e.message);
+    res.status(500).json({ error: e.message });
   }
 });
 

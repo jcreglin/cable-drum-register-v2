@@ -899,14 +899,14 @@
       }
     }
 
-    let drumPhotoReadToken = 0;
-    let drumPhotoProcessing = false;
+    let drumPhotoUploading = false;
+    let drumPhotoUploadToken = 0;
 
-    function setDrumPhotoProcessing(isProcessing, message = '') {
-      drumPhotoProcessing = isProcessing;
+    function setDrumPhotoUploading(isUploading, message = '') {
+      drumPhotoUploading = isUploading;
       const saveBtn = document.getElementById('saveDrumBtn');
       const statusEl = document.getElementById('photo_status');
-      if (saveBtn) saveBtn.disabled = isProcessing;
+      if (saveBtn) saveBtn.disabled = isUploading;
       if (statusEl) statusEl.textContent = message;
     }
 
@@ -919,7 +919,14 @@
       });
     }
 
-    async function optimiseDrumPhoto(file, dataUrl) {
+    async function optimiseImageFile(file) {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = evt => resolve(evt.target.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
       const img = await loadImageFromDataUrl(dataUrl);
       const maxDim = 1600;
       let { width, height } = img;
@@ -928,27 +935,29 @@
         width = Math.round(width * scale);
         height = Math.round(height * scale);
       }
+
       const canvas = document.createElement('canvas');
       canvas.width = width;
       canvas.height = height;
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0, width, height);
 
-      let output = dataUrl;
+      const targetType = file.type === 'image/png' && file.size < 2 * 1024 * 1024 ? 'image/png' : 'image/jpeg';
       let quality = 0.82;
-      if (file.type !== 'image/png' || file.size > 2 * 1024 * 1024) {
-        output = canvas.toDataURL('image/jpeg', quality);
-        while (output.length > 3.5 * 1024 * 1024 && quality > 0.45) {
-          quality -= 0.08;
-          output = canvas.toDataURL('image/jpeg', quality);
-        }
+      let blob = await new Promise(resolve => canvas.toBlob(resolve, targetType, quality));
+      while (blob && blob.size > 4.5 * 1024 * 1024 && targetType === 'image/jpeg' && quality > 0.45) {
+        quality -= 0.08;
+        blob = await new Promise(resolve => canvas.toBlob(resolve, targetType, quality));
       }
-      return output;
+      if (!blob) throw new Error('Could not process image');
+      const ext = targetType === 'image/png' ? '.png' : '.jpg';
+      const baseName = (file.name || 'photo').replace(/\.[^.]+$/, '');
+      return new File([blob], baseName + ext, { type: targetType });
     }
 
     async function saveDrum() {
-      if (drumPhotoProcessing) {
-        alert('Image is still processing. Please wait a moment and try save again.');
+      if (drumPhotoUploading) {
+        alert('Image is still uploading. Please wait a moment and try save again.');
         return;
       }
       const data = {
@@ -1031,6 +1040,11 @@
     async function deleteDrumPhoto(id) {
       if (!confirm('Delete this photo?')) return;
       try {
+        const drums = await (await call('/api/drums')).json();
+        const drum = drums.find(d => d.id === id);
+        if (drum && drum.drum_photo) {
+          await call('/api/drums/photo/' + drum.drum_photo, { method: 'DELETE' });
+        }
         const r = await call('/api/drums/' + id, { method: 'PUT', body: JSON.stringify({ drum_photo: null }) });
         if (r.ok) {
           viewDrum(id);
@@ -1041,8 +1055,8 @@
     }
     
     function clearDrumPhoto() {
-      drumPhotoReadToken++;
-      setDrumPhotoProcessing(false, '');
+      drumPhotoUploadToken++;
+      setDrumPhotoUploading(false, '');
       document.getElementById('drum_photo').value = '';
       document.getElementById('drum_photo_url').value = '';
       document.getElementById('photo_preview').innerHTML = '';
@@ -1050,11 +1064,11 @@
 
     function openModal() {
       editingId = null;
+      drumPhotoUploadToken++;
       document.getElementById('modalTitle').textContent = 'Add Drum';
       document.querySelectorAll('#drumModal input, #drumModal select, #drumModal textarea').forEach(el => el.value = '');
-      drumPhotoReadToken++;
-      setDrumPhotoProcessing(false, '');
       document.getElementById('photo_preview').innerHTML = '';
+      setDrumPhotoUploading(false, '');
       document.getElementById('drumModal').classList.add('show');
     }
 
@@ -1065,63 +1079,76 @@
     }
 
     function closeModal() {
-      drumPhotoReadToken++;
-      setDrumPhotoProcessing(false, '');
+      drumPhotoUploadToken++;
+      setDrumPhotoUploading(false, '');
       document.getElementById('drumModal').classList.remove('show');
+    }
+
+    function getDrumPhotoUrl(photo) {
+      if (!photo) return '';
+      if (photo.startsWith('data:')) return photo;
+      return '/uploads/' + photo;
     }
     
     // Handle drum photo file upload
     async function handleDrumPhotoChange(e) {
       const file = e.target.files[0];
       if (!file) {
-        setDrumPhotoProcessing(false, '');
+        setDrumPhotoUploading(false, '');
         return;
       }
 
-      const readToken = ++drumPhotoReadToken;
+      const uploadToken = ++drumPhotoUploadToken;
       const objectUrl = URL.createObjectURL(file);
       document.getElementById('photo_preview').innerHTML = '<img src="' + objectUrl + '" style="max-width:100px;max-height:100px;">';
-      setDrumPhotoProcessing(true, 'Loading image...');
+      setDrumPhotoUploading(true, 'Preparing image...');
 
-      const reader = new FileReader();
-      reader.onload = async function(evt) {
-        if (readToken !== drumPhotoReadToken) {
+      try {
+        const uploadFile = await optimiseImageFile(file);
+        if (uploadToken !== drumPhotoUploadToken) {
           URL.revokeObjectURL(objectUrl);
           return;
         }
-        try {
-          setDrumPhotoProcessing(true, 'Optimising image...');
-          const optimised = await optimiseDrumPhoto(file, evt.target.result);
-          if (readToken !== drumPhotoReadToken) {
-            URL.revokeObjectURL(objectUrl);
-            return;
-          }
-          document.getElementById('drum_photo_url').value = optimised;
-          document.getElementById('photo_preview').innerHTML = '<img src="' + optimised + '" style="max-width:100px;max-height:100px;">';
-          setDrumPhotoProcessing(false, 'Image ready');
+
+        const formData = new FormData();
+        formData.append('photo', uploadFile);
+        setDrumPhotoUploading(true, 'Uploading image...');
+
+        const response = await fetch('/api/drums/photo', {
+          method: 'POST',
+          headers: { 'Authorization': token || '' },
+          body: formData
+        });
+
+        if (uploadToken !== drumPhotoUploadToken) {
           URL.revokeObjectURL(objectUrl);
-        } catch (err) {
-          if (readToken !== drumPhotoReadToken) {
-            URL.revokeObjectURL(objectUrl);
-            return;
-          }
-          document.getElementById('drum_photo_url').value = evt.target.result;
-          setDrumPhotoProcessing(false, 'Image ready (original)');
-          URL.revokeObjectURL(objectUrl);
+          return;
         }
-      };
-      reader.onerror = function() {
-        if (readToken !== drumPhotoReadToken) {
+
+        if (!response.ok) {
+          let msg = 'Upload failed';
+          try {
+            const err = await response.json();
+            msg = err.error || msg;
+          } catch (_) {}
+          throw new Error(msg);
+        }
+
+        const result = await response.json();
+        document.getElementById('drum_photo_url').value = result.filename;
+        document.getElementById('photo_preview').innerHTML = '<img src="' + getDrumPhotoUrl(result.filename) + '" style="max-width:100px;max-height:100px;">';
+        setDrumPhotoUploading(false, 'Image ready');
+      } catch(err) {
+        if (uploadToken !== drumPhotoUploadToken) {
           URL.revokeObjectURL(objectUrl);
           return;
         }
         document.getElementById('drum_photo_url').value = '';
-        document.getElementById('photo_preview').innerHTML = '';
-        setDrumPhotoProcessing(false, 'Image failed to load');
+        setDrumPhotoUploading(false, 'Upload failed');
+        alert('Error uploading photo: ' + err.message);
+      } finally {
         URL.revokeObjectURL(objectUrl);
-        alert('Failed to read image. Please try again.');
-      };
-      reader.readAsDataURL(file);
+      }
     }
 
     function ensureSelectHasValue(selectId, value) {
@@ -1173,8 +1200,8 @@
       document.getElementById('warehouse_location').value = d.warehouse_location || '';
       document.getElementById('drum_photo_url').value = d.drum_photo || '';
       document.getElementById('drum_photo').value = '';
-      setDrumPhotoProcessing(false, d.drum_photo ? 'Existing image loaded' : '');
-      document.getElementById('photo_preview').innerHTML = d.drum_photo ? '<img src="' + d.drum_photo + '" style="max-width:100px;max-height:100px;">' : '';
+      setDrumPhotoUploading(false, d.drum_photo ? 'Existing image loaded' : '');
+      document.getElementById('photo_preview').innerHTML = d.drum_photo ? '<img src="' + getDrumPhotoUrl(d.drum_photo) + '" style="max-width:100px;max-height:100px;">' : '';
       document.getElementById('comments').value = d.comments || '';
       document.getElementById('drumModal').classList.add('show');
     }
@@ -1273,7 +1300,7 @@ function showDrumList() {
         <div style="display:flex; align-items:center; gap:15px; background:#fff; padding:15px 20px; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.1);">
           <button onclick="showDrumList()" style="width:fit-content;">← Back to List</button>
           <div style="flex:1;"><strong style="font-size:18px;">Drum No. ${d.drum_number || '-'}</strong> <span class="status-badge">${d.status || 'Active'}</span></div>
-          ${d.drum_photo ? `<img src="${d.drum_photo}" style="max-width:80px;max-height:80px;border-radius:8px;border:1px solid #ddd;cursor:pointer;" onclick="window.open('${d.drum_photo}', '_blank')">` : ''}
+          ${d.drum_photo ? `<img src="${getDrumPhotoUrl(d.drum_photo)}" style="max-width:80px;max-height:80px;border-radius:8px;border:1px solid #ddd;cursor:pointer;" onclick="window.open('${getDrumPhotoUrl(d.drum_photo)}', '_blank')">` : ''}
         </div>
         
         <div class="detail-grid">
