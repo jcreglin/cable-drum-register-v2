@@ -3,8 +3,11 @@ services:
     build: .
     ports:
       - "3040:3040"
+    environment:
+      - PORT=3040
     volumes:
       - drum_data:/app/data
+      - drum_uploads:/app/uploads
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.drums.rule=Host(`drums.astelecgroup.com.au`)"
@@ -20,3 +23,4 @@ services:
 
 volumes:
   drum_data:
+  drum_uploads:

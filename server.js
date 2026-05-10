@@ -5,8 +5,9 @@ const fs = require('fs');
 const multer = require('multer');
 
 const app = express();
-const PORT = 3040;
+const PORT = process.env.PORT || 3040;
 
+// Setup multer for file uploads
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
@@ -18,7 +19,14 @@ const storage = multer.diskStorage({
     cb(null, uniqueSuffix + path.extname(file.originalname));
   }
 });
-const upload = multer({ storage, limits: { fileSize: 25 * 1024 * 1024 } });
+const upload = multer({ storage, limits: { fileSize: 25 * 1024 * 1024 } }); // 25MB limit
+
+// Separate multer for backup restore (uses /tmp)
+const restoreStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, '/tmp'),
+  filename: (req, file, cb) => cb(null, 'restore-' + Date.now() + '.zip')
+});
+const uploadRestore = multer({ storage: restoreStorage, limits: { fileSize: 50 * 1024 * 1024 } }); // 50MB for restores
 
 // Increase payload limit for larger requests
 app.use(express.json({ limit: '25mb' }));
@@ -42,8 +50,8 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use('/uploads', express.static(uploadsDir));
 app.use(express.static(__dirname));
+app.use('/uploads', express.static(uploadsDir));
 
 const dbPath = process.env.DB_PATH || 'cabledrums.db';
 const db = new Database(dbPath);
@@ -492,13 +500,15 @@ app.get('/api/drums/export', requireAuth, (req, res) => {
 
 const ensureLookupValue = (table, value) => {
   if (!value) return null;
+  const cleanValue = String(value).trim();
+  if (!cleanValue) return null;
   try {
-    const exists = db.prepare('SELECT id FROM ' + table + ' WHERE name = ?').get(value);
-    if (exists) return value;
-    db.prepare('INSERT INTO ' + table + ' (name) VALUES (?)').run(value);
-    return value;
+    const exists = db.prepare('SELECT id FROM ' + table + ' WHERE name = ?').get(cleanValue);
+    if (exists) return cleanValue;
+    db.prepare('INSERT INTO ' + table + ' (name) VALUES (?)').run(cleanValue);
+    return cleanValue;
   } catch(e) {
-    return value;
+    return cleanValue;
   }
 };
 
@@ -581,7 +591,10 @@ app.post('/api/drums/import', requireRole(['admin']), (req, res) => {
       try {
         const values = parseCsvLine(lines[i]);
         const row = {};
-        headers.forEach((h, idx) => { row[h] = values[idx] || ''; });
+        headers.forEach((h, idx) => {
+          const v = values[idx];
+          row[h] = typeof v === 'string' ? v.trim() : (v || '');
+        });
         
         let drumNumber = row.drum_number;
         const existing = db.prepare('SELECT id FROM cable_drums WHERE drum_number = ?').get(drumNumber);
@@ -608,7 +621,18 @@ app.post('/api/drums/import', requireRole(['admin']), (req, res) => {
         const outer = row.outer_end_reading !== '' ? parseFloat(row.outer_end_reading) : null;
         const calculated = (inner !== null && outer !== null) ? Math.abs(outer - inner) : null;
         const openingLength = row.opening_entry_length !== '' ? parseFloat(row.opening_entry_length) : calculated;
-        const remainingLength = calculated;
+        // Use calculated from inner/outer, or fall back to opening_entry_length
+        const remainingLength = calculated !== null ? calculated : openingLength;
+        
+        // Calculate value_on_hand if not provided: price_per_meter * remaining_length
+        let pricePerMeter = row.price_per_meter !== '' ? parseFloat(row.price_per_meter) : null;
+        let valueOnHand = row.value_on_hand !== '' ? parseFloat(row.value_on_hand) : null;
+        if (valueOnHand === null && pricePerMeter !== null && remainingLength !== null) {
+          valueOnHand = pricePerMeter * remainingLength;
+        }
+        
+        // Normalize manufacture_date (handle various formats)
+        let manufactureDate = row.manufacture_date || row.manufacture_date_ || row.manufactured || '';
         
         db.prepare(`INSERT INTO cable_drums (
           drum_number, client, drum_owner, cable_type, cable_count, sheath_colour, type,
@@ -620,10 +644,10 @@ app.post('/api/drums/import', requireRole(['admin']), (req, res) => {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`).run(
           row.drum_number, client, drumOwner, cableType, cableCount, sheathColour, category,
           inner, outer, openingLength, remainingLength,
-          row.price_per_meter !== '' ? parseFloat(row.price_per_meter) : null, row.value_on_hand !== '' ? parseFloat(row.value_on_hand) : null,
+          pricePerMeter, valueOnHand,
           row.audit_date, row.audit_by, row.status || 'Active', row.sign_status || 'Signed In',
           row.sign_out_to, row.sign_out_date, row.sign_in_date, project, row.project_drum_number,
-          row.batch_number, manufacturer, row.manufacture_date, row.status_reason, row.comments,
+          row.batch_number, manufacturer, manufactureDate, row.status_reason, row.comments,
           warehouse, row.warehouse_location
         );
 
@@ -686,6 +710,82 @@ app.post('/api/restore', requireRole(['admin']), (req, res) => {
     setTimeout(() => process.exit(0), 1000);
   } catch(e) {
     console.error('Restore error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Full backup - database + uploads as a zip file
+app.get('/api/backup-full', requireRole(['admin']), (req, res) => {
+  try {
+    const AdmZip = require('adm-zip');
+    const zip = new AdmZip();
+    
+    // Add database file
+    if (fs.existsSync(dbPath)) {
+      zip.addLocalFile(dbPath, '', 'cabledrums.db');
+    }
+    
+    // Add uploads folder
+    if (fs.existsSync(uploadsDir)) {
+      const uploadFiles = fs.readdirSync(uploadsDir);
+      uploadFiles.forEach(f => {
+        zip.addLocalFile(path.join(uploadsDir, f), 'uploads');
+      });
+    }
+    
+    const zipBuffer = zip.toBuffer();
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename=backup-' + new Date().toISOString().split('T')[0] + '.zip');
+    res.send(zipBuffer);
+  } catch(e) {
+    console.error('Full backup error:', e.message, e.stack);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Full restore - upload a zip file with database + uploads
+app.post('/api/restore-full', requireRole(['admin']), uploadRestore.single('backup'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No backup file uploaded' });
+    }
+    
+    const tempZip = req.file.path;
+    const extractDir = '/tmp/restore-' + Date.now();
+    fs.mkdirSync(extractDir, { recursive: true });
+    
+    // Extract zip
+    const AdmZip = require('adm-zip');
+    const zip = new AdmZip(tempZip);
+    zip.extractAllTo(extractDir, true);
+    
+    // Restore database
+    const extractedDb = path.join(extractDir, 'cabledrums.db');
+    if (fs.existsSync(extractedDb)) {
+      db.close();
+      fs.copyFileSync(extractedDb, dbPath);
+    }
+    
+    // Restore uploads
+    const extractedUploads = path.join(extractDir, 'uploads');
+    if (fs.existsSync(extractedUploads)) {
+      // Clear existing uploads and copy new ones
+      if (fs.existsSync(uploadsDir)) {
+        fs.readdirSync(uploadsDir).forEach(f => fs.unlinkSync(path.join(uploadsDir, f)));
+      }
+      fs.readdirSync(extractedUploads).forEach(f => {
+        fs.copyFileSync(path.join(extractedUploads, f), path.join(uploadsDir, f));
+      });
+    }
+    
+    // Cleanup
+    fs.unlinkSync(tempZip);
+    fs.rmSync(extractDir, { recursive: true, force: true });
+    
+    res.json({ success: true, message: 'Full backup restored. The server will restart to apply changes.' });
+    setTimeout(() => process.exit(0), 1000);
+  } catch(e) {
+    console.error('Full restore error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
@@ -799,6 +899,7 @@ app.post('/api/master-delete', requireRole(['admin']), (req, res) => {
   }
 });
 
+// Upload drum photo endpoint
 app.post('/api/drums/photo', requireAuth, (req, res) => {
   try {
     upload.single('photo')(req, res, (err) => {
@@ -809,6 +910,7 @@ app.post('/api/drums/photo', requireAuth, (req, res) => {
       if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded' });
       }
+      // Return the filename so frontend can associate with drum
       res.json({ filename: req.file.filename, originalName: req.file.originalname });
     });
   } catch(e) {
@@ -817,6 +919,7 @@ app.post('/api/drums/photo', requireAuth, (req, res) => {
   }
 });
 
+// Delete drum photo endpoint
 app.delete('/api/drums/photo/:filename', requireAuth, (req, res) => {
   try {
     const filename = req.params.filename;

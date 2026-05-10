@@ -165,6 +165,9 @@
         <button onclick="backupDatabase()" id="backupBtn" class="success small" style="display:none;">💾 Backup DB</button>
         <button onclick="document.getElementById('restoreFile').click()" id="restoreBtn" class="small" style="display:none;">📤 Restore DB</button>
         <input type="file" id="restoreFile" accept=".db" style="display:none;" onchange="restoreDatabase()">
+        <button onclick="backupFull()" id="backupFullBtn" class="success small" style="display:none;">💾 Full Backup</button>
+        <button onclick="document.getElementById('restoreFullFile').click()" id="restoreFullBtn" class="small" style="display:none;">📤 Full Restore</button>
+        <input type="file" id="restoreFullFile" accept=".zip" style="display:none;" onchange="restoreFull()">
       </div>
     </div>
 
@@ -578,6 +581,7 @@
       await loadStats();
       await loadDrums();
       await loadLookups();
+      lookupsLoaded = true;
       if (currentUserRole === 'client') await loadClientFilterOptions();
       loadLookupTable('clients', 'active');
       await loadProjects();
@@ -610,9 +614,7 @@
             const currentValue = formEl.value;
             formEl.innerHTML = '<option value="">Select ' + m.label.replace(/s$/, '') + '</option>' +
               values.map(v => '<option value="' + v + '">' + v + '</option>').join('');
-            if (currentValue && Array.from(formEl.options).some(opt => opt.value === currentValue)) {
-              formEl.value = currentValue;
-            }
+            if (currentValue) setSelectValue(m.formId, currentValue);
           }
         });
       } catch(e) { console.error('Filter options error:', e); }
@@ -755,6 +757,7 @@
         loadLookupTable(apiTable, lookupFilters[apiTable] || 'active');
         // Refresh form dropdowns to show/hide archived items
         await loadLookups();
+        lookupsLoaded = true;
       } catch(e) { alert('Error: ' + e.message); }
     }
     
@@ -798,9 +801,7 @@
           const currentValue = formSelect.value;
           formSelect.innerHTML = '<option value="">Select ' + map.label.replace(/s$/, '') + '</option>' + 
             data.filter(x => !x.archived).map(x => `<option value="${x.name}">${x.name}</option>`).join('');
-          if (currentValue && Array.from(formSelect.options).some(opt => opt.value === currentValue)) {
-            formSelect.value = currentValue;
-          }
+          if (currentValue) setSelectValue(map.form, currentValue);
         }
       }
     }
@@ -899,62 +900,6 @@
       }
     }
 
-    let drumPhotoUploading = false;
-    let drumPhotoUploadToken = 0;
-
-    function setDrumPhotoUploading(isUploading, message = '') {
-      drumPhotoUploading = isUploading;
-      const saveBtn = document.getElementById('saveDrumBtn');
-      const statusEl = document.getElementById('photo_status');
-      if (saveBtn) saveBtn.disabled = isUploading;
-      if (statusEl) statusEl.textContent = message;
-    }
-
-    function loadImageFromDataUrl(dataUrl) {
-      return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => resolve(img);
-        img.onerror = reject;
-        img.src = dataUrl;
-      });
-    }
-
-    async function optimiseImageFile(file) {
-      const dataUrl = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = evt => resolve(evt.target.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-
-      const img = await loadImageFromDataUrl(dataUrl);
-      const maxDim = 1600;
-      let { width, height } = img;
-      if (width > maxDim || height > maxDim) {
-        const scale = Math.min(maxDim / width, maxDim / height);
-        width = Math.round(width * scale);
-        height = Math.round(height * scale);
-      }
-
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, width, height);
-
-      const targetType = file.type === 'image/png' && file.size < 2 * 1024 * 1024 ? 'image/png' : 'image/jpeg';
-      let quality = 0.82;
-      let blob = await new Promise(resolve => canvas.toBlob(resolve, targetType, quality));
-      while (blob && blob.size > 4.5 * 1024 * 1024 && targetType === 'image/jpeg' && quality > 0.45) {
-        quality -= 0.08;
-        blob = await new Promise(resolve => canvas.toBlob(resolve, targetType, quality));
-      }
-      if (!blob) throw new Error('Could not process image');
-      const ext = targetType === 'image/png' ? '.png' : '.jpg';
-      const baseName = (file.name || 'photo').replace(/\.[^.]+$/, '');
-      return new File([blob], baseName + ext, { type: targetType });
-    }
-
     async function saveDrum() {
       if (drumPhotoUploading) {
         alert('Image is still uploading. Please wait a moment and try save again.');
@@ -1040,11 +985,14 @@
     async function deleteDrumPhoto(id) {
       if (!confirm('Delete this photo?')) return;
       try {
+        // Get current drum to find filename
         const drums = await (await call('/api/drums')).json();
         const drum = drums.find(d => d.id === id);
         if (drum && drum.drum_photo) {
+          // Delete file from server
           await call('/api/drums/photo/' + drum.drum_photo, { method: 'DELETE' });
         }
+        // Clear from database
         const r = await call('/api/drums/' + id, { method: 'PUT', body: JSON.stringify({ drum_photo: null }) });
         if (r.ok) {
           viewDrum(id);
@@ -1083,14 +1031,121 @@
       setDrumPhotoUploading(false, '');
       document.getElementById('drumModal').classList.remove('show');
     }
-
+    
+    // Get image URL - handles both base64 (old) and filename (new)
     function getDrumPhotoUrl(photo) {
       if (!photo) return '';
+      // If it's a data URL (base64), use it directly
       if (photo.startsWith('data:')) return photo;
+      // Otherwise assume it's a filename in /uploads
       return '/uploads/' + photo;
     }
+
+    // Normalize stored dates to YYYY-MM-DD for HTML date inputs
+    function normalizeDateForInput(value) {
+      if (!value) return '';
+      const raw = String(value).trim();
+      if (!raw) return '';
+
+      // Already ISO-ish
+      if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+
+      // Handle dd/mm/yyyy or d/m/yyyy
+      const slashMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (slashMatch) {
+        const [, d, m, y] = slashMatch;
+        return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+      }
+
+      // Handle dd-mm-yyyy or d-m-yyyy
+      const dashMatch = raw.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+      if (dashMatch) {
+        const [, d, m, y] = dashMatch;
+        return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+      }
+
+      const parsed = new Date(raw);
+      if (!isNaN(parsed.getTime())) {
+        return parsed.toISOString().slice(0, 10);
+      }
+
+      return '';
+    }
     
-    // Handle drum photo file upload
+    function setSelectValue(selectId, value) {
+      const el = document.getElementById(selectId);
+      if (!el) return;
+      const wanted = value == null ? '' : String(value).trim();
+      if (!wanted) {
+        el.value = '';
+        return;
+      }
+      if (!Array.from(el.options).some(opt => String(opt.value).trim() === wanted)) {
+        const option = document.createElement('option');
+        option.value = wanted;
+        option.textContent = wanted;
+        el.appendChild(option);
+      }
+      const match = Array.from(el.options).find(opt => String(opt.value).trim() === wanted);
+      el.value = match ? match.value : '';
+    }
+
+    let drumPhotoUploading = false;
+    let drumPhotoUploadToken = 0;
+
+    function setDrumPhotoUploading(isUploading, message = '') {
+      drumPhotoUploading = isUploading;
+      const saveBtn = document.getElementById('saveDrumBtn');
+      const statusEl = document.getElementById('photo_status');
+      if (saveBtn) saveBtn.disabled = isUploading;
+      if (statusEl) statusEl.textContent = message;
+    }
+
+    function loadImageFromDataUrl(dataUrl) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = dataUrl;
+      });
+    }
+
+    async function optimiseImageFile(file) {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = evt => resolve(evt.target.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const img = await loadImageFromDataUrl(dataUrl);
+      const maxDim = 1600;
+      let { width, height } = img;
+      if (width > maxDim || height > maxDim) {
+        const scale = Math.min(maxDim / width, maxDim / height);
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+
+      const targetType = file.type === 'image/png' && file.size < 2 * 1024 * 1024 ? 'image/png' : 'image/jpeg';
+      let quality = 0.82;
+      let blob = await new Promise(resolve => canvas.toBlob(resolve, targetType, quality));
+      while (blob && blob.size > 4.5 * 1024 * 1024 && targetType === 'image/jpeg' && quality > 0.45) {
+        quality -= 0.08;
+        blob = await new Promise(resolve => canvas.toBlob(resolve, targetType, quality));
+      }
+      if (!blob) throw new Error('Could not process image');
+      const ext = targetType === 'image/png' ? '.png' : '.jpg';
+      const baseName = (file.name || 'photo').replace(/\.[^.]+$/, '');
+      return new File([blob], baseName + ext, { type: targetType });
+    }
+
     async function handleDrumPhotoChange(e) {
       const file = e.target.files[0];
       if (!file) {
@@ -1151,52 +1206,46 @@
       }
     }
 
-    function ensureSelectHasValue(selectId, value) {
-      const select = document.getElementById(selectId);
-      if (!select || !value) return;
-      if (!Array.from(select.options).some(opt => opt.value === value)) {
-        const option = document.createElement('option');
-        option.value = value;
-        option.textContent = value;
-        select.appendChild(option);
-      }
-      select.value = value;
-    }
-
+    let lookupsLoaded = false;
+    
     async function editDrum(id) {
-      await loadLookups(); // Ensure dropdown options are loaded before setting values
+      // Ensure lookups are loaded before trying to set select values
+      if (!lookupsLoaded) {
+        await loadLookups();
+        lookupsLoaded = true;
+      }
       const drums = await (await call('/api/drums')).json();
       const d = drums.find(x => x.id === id);
       if (!d) return;
       editingId = id;
       document.getElementById('modalTitle').textContent = 'Edit Drum';
       document.getElementById('drum_number').value = d.drum_number || '';
-      ensureSelectHasValue('client', d.client || '');
-      ensureSelectHasValue('drum_owner', d.drum_owner || '');
-      ensureSelectHasValue('cable_type', d.cable_type || '');
-      ensureSelectHasValue('cable_count', d.cable_count || '');
-      ensureSelectHasValue('sheath_colour', d.sheath_colour || '');
-      ensureSelectHasValue('type', d.type || '');
+      setSelectValue('client', d.client);
+      setSelectValue('drum_owner', d.drum_owner);
+      setSelectValue('cable_type', d.cable_type);
+      setSelectValue('cable_count', d.cable_count);
+      setSelectValue('sheath_colour', d.sheath_colour);
+      setSelectValue('type', d.type);
       document.getElementById('inner_end_reading').value = d.inner_end_reading || '';
       document.getElementById('outer_end_reading').value = d.outer_end_reading || '';
       document.getElementById('opening_entry_length').value = d.opening_entry_length || '';
       document.getElementById('remaining_length').value = d.remaining_length || '';
       document.getElementById('price_per_meter').value = d.price_per_meter || '';
       document.getElementById('value_on_hand').value = d.value_on_hand || '';
-      ensureSelectHasValue('status', d.status || 'Active');
+      setSelectValue('status', d.status || 'Active');
       document.getElementById('sign_out_to').value = d.sign_out_to || '';
-      ensureSelectHasValue('sign_status', d.sign_status || 'Signed In');
-      document.getElementById('sign_out_date').value = d.sign_out_date || '';
-      document.getElementById('sign_in_date').value = d.sign_in_date || '';
-      ensureSelectHasValue('project_allocation', d.project_allocation || '');
+      setSelectValue('sign_status', d.sign_status || 'Signed In');
+      document.getElementById('sign_out_date').value = normalizeDateForInput(d.sign_out_date);
+      document.getElementById('sign_in_date').value = normalizeDateForInput(d.sign_in_date);
+      setSelectValue('project_allocation', d.project_allocation);
       document.getElementById('project_drum_number').value = d.project_drum_number || '';
       document.getElementById('batch_number').value = d.batch_number || '';
-      ensureSelectHasValue('manufacturer', d.manufacturer || '');
-      document.getElementById('manufacture_date').value = d.manufacture_date || '';
-      document.getElementById('audit_date').value = d.audit_date || '';
+      setSelectValue('manufacturer', d.manufacturer);
+      document.getElementById('manufacture_date').value = normalizeDateForInput(d.manufacture_date);
+      document.getElementById('audit_date').value = normalizeDateForInput(d.audit_date);
       document.getElementById('audit_by').value = d.audit_by || '';
       document.getElementById('status_reason').value = d.status_reason || '';
-      ensureSelectHasValue('warehouse', d.warehouse || '');
+      setSelectValue('warehouse', d.warehouse);
       document.getElementById('warehouse_location').value = d.warehouse_location || '';
       document.getElementById('drum_photo_url').value = d.drum_photo || '';
       document.getElementById('drum_photo').value = '';
@@ -1880,6 +1929,8 @@ function showDrumList() {
               document.getElementById('masterDeleteBtn').style.display = 'inline-block';
               document.getElementById('backupBtn').style.display = 'inline-block';
               document.getElementById('restoreBtn').style.display = 'inline-block';
+              document.getElementById('backupFullBtn').style.display = 'inline-block';
+              document.getElementById('restoreFullBtn').style.display = 'inline-block';
             }
             // Show users tab for admin or users with canManageUsers
             if (currentUserRole === 'admin' || currentUserPerms.canManageUsers) {
@@ -2037,6 +2088,48 @@ function showDrumList() {
         reader.readAsDataURL(file);
       } catch(e) { alert('Restore error: ' + e.message); }
       document.getElementById('restoreFile').value = '';
+    }
+
+    async function backupFull() {
+      try {
+        const r = await fetch('/api/backup-full', { headers: { 'Authorization': token || '' } });
+        if (!r.ok) {
+          const err = await r.json();
+          alert('Backup failed: ' + (err.error || r.status));
+          return;
+        }
+        const blob = await r.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'cabledrums-full-backup-' + new Date().toISOString().slice(0,10) + '.zip';
+        a.click();
+      } catch(e) { alert('Backup error: ' + e.message); }
+    }
+
+    async function restoreFull() {
+      const file = document.getElementById('restoreFullFile').files[0];
+      if (!file) return;
+      if (!confirm('This will replace the current database AND upload all images. Continue?')) {
+        document.getElementById('restoreFullFile').value = '';
+        return;
+      }
+      try {
+        const formData = new FormData();
+        formData.append('backup', file);
+        const resp = await fetch('/api/restore-full', {
+          method: 'POST',
+          headers: { 'Authorization': token || '' },
+          body: formData
+        });
+        const r = await resp.json();
+        if (r.success) {
+          alert('Full backup restored! Page will reload.');
+          setTimeout(() => location.reload(), 2000);
+        } else {
+          alert('Restore failed: ' + (r.error || 'Unknown error'));
+        }
+      } catch(e) { alert('Restore error: ' + e.message); }
+      document.getElementById('restoreFullFile').value = '';
     }
 
     async function masterDelete() {
