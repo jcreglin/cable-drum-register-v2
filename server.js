@@ -479,7 +479,14 @@ app.get('/api/drums/export', requireAuth, (req, res) => {
     
     for (const drum of drums) {
       const row = headers.map(h => {
-        let val = drum[h] || '';
+        let val;
+        if (h === 'value_on_hand') {
+          const remaining = parseFloat(drum.remaining_length) || 0;
+          const price = parseFloat(drum.price_per_meter) || 0;
+          val = (remaining * price).toFixed(2);
+        } else {
+          val = drum[h] || '';
+        }
         // Always wrap in quotes to be safe - handles commas, newlines, quotes
         if (typeof val === 'string') {
           val = '"' + val.replace(/"/g, '""') + '"';
@@ -547,7 +554,7 @@ app.post('/api/drums/import-preview', requireRole(['admin']), (req, res) => {
     const lines = csv.trim().split('\n');
     if (lines.length < 2) return res.status(400).json({ error: 'CSV must have header and at least one data row' });
     
-    const headers = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase());
+    const headers = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase().replace(/^\ufeff/, '').replace(/\s+/g, '_'));
     const preview = [];
     
     for (let i = 1; i < lines.length; i++) {
@@ -584,7 +591,7 @@ app.post('/api/drums/import', requireRole(['admin']), (req, res) => {
     const lines = csv.trim().split('\n');
     if (lines.length < 2) return res.status(400).json({ error: 'CSV must have header and at least one data row' });
     
-    const headers = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase());
+    const headers = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase().replace(/^\ufeff/, '').replace(/\s+/g, '_'));
     const results = { imported: 0, duplicates: [], errors: [] };
     
     for (let i = 1; i < lines.length; i++) {
@@ -619,22 +626,23 @@ app.post('/api/drums/import', requireRole(['admin']), (req, res) => {
         
         const inner = row.inner_end_reading !== '' ? parseFloat(row.inner_end_reading) : null;
         const outer = row.outer_end_reading !== '' ? parseFloat(row.outer_end_reading) : null;
-        const calculated = (inner !== null && outer !== null) ? Math.abs(outer - inner) : null;
+        // For imports, if one end reading is blank but the other is present, treat the blank side as 0
+        // so remaining length can still be derived from the readings.
+        const calculated = (inner !== null || outer !== null)
+          ? Math.abs((outer ?? 0) - (inner ?? 0))
+          : null;
         const openingLength = row.opening_entry_length !== '' ? parseFloat(row.opening_entry_length) : calculated;
-        // Use calculated from inner/outer, or fall back to opening_entry_length
-        const remainingLength = calculated !== null ? calculated : openingLength;
+        // Prefer CSV remaining_length when provided, otherwise fall back to calculated or opening length
+        const remainingLength = row.remaining_length !== '' ? parseFloat(row.remaining_length) : (calculated !== null ? calculated : openingLength);
         
         // Calculate value_on_hand if not provided: price_per_meter * remaining_length
         let pricePerMeter = row.price_per_meter !== '' ? parseFloat(row.price_per_meter) : null;
-        let valueOnHand = row.value_on_hand !== '' ? parseFloat(row.value_on_hand) : null;
-        if (valueOnHand === null && pricePerMeter !== null && remainingLength !== null) {
-          valueOnHand = pricePerMeter * remainingLength;
-        }
+        let valueOnHand = (pricePerMeter !== null && remainingLength !== null) ? (pricePerMeter * remainingLength) : null;
         
         // Normalize manufacture_date (handle various formats)
         let manufactureDate = row.manufacture_date || row.manufacture_date_ || row.manufactured || '';
         
-        db.prepare(`INSERT INTO cable_drums (
+        const insertResult = db.prepare(`INSERT INTO cable_drums (
           drum_number, client, drum_owner, cable_type, cable_count, sheath_colour, type,
           inner_end_reading, outer_end_reading, opening_entry_length, remaining_length,
           price_per_meter, value_on_hand, audit_date, audit_by, status, sign_status,
@@ -642,7 +650,7 @@ app.post('/api/drums/import', requireRole(['admin']), (req, res) => {
           batch_number, manufacturer, manufacture_date, status_reason, comments,
           warehouse, warehouse_location, created_on
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`).run(
-          row.drum_number, client, drumOwner, cableType, cableCount, sheathColour, category,
+          drumNumber, client, drumOwner, cableType, cableCount, sheathColour, category,
           inner, outer, openingLength, remainingLength,
           pricePerMeter, valueOnHand,
           row.audit_date, row.audit_by, row.status || 'Active', row.sign_status || 'Signed In',
@@ -651,13 +659,17 @@ app.post('/api/drums/import', requireRole(['admin']), (req, res) => {
           warehouse, row.warehouse_location
         );
 
+        // Belt-and-braces: explicitly persist the resolved remaining/value values used during import
+        db.prepare('UPDATE cable_drums SET remaining_length = ?, value_on_hand = ? WHERE id = ?').run(
+          remainingLength,
+          valueOnHand,
+          insertResult.lastInsertRowid
+        );
+
         // Create opening allocation for the imported drum
-        const insertedId = db.prepare('SELECT id FROM cable_drums WHERE drum_number = ? ORDER BY id DESC LIMIT 1').get(row.drum_number);
-        if (insertedId) {
-          db.prepare('INSERT INTO cable_allocations (drum_id, project_allocation, qty_used, qty_remaining, used_by, comments, created_on) VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)').run(
-            insertedId.id, project || null, 0, openingLength, 'Import', 'Opening Entry'
-          );
-        }
+        db.prepare('INSERT INTO cable_allocations (drum_id, project_allocation, qty_used, qty_remaining, used_by, comments, created_on) VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)').run(
+          insertResult.lastInsertRowid, project || null, 0, remainingLength, 'Import', 'Opening Entry'
+        );
 
         results.imported++;
       } catch(rowErr) {
