@@ -259,6 +259,76 @@ app.post('/api/change-password', requireAuth, (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// Get current app version
+app.get('/api/version', requireAuth, (req, res) => {
+  try {
+    let currentVersion = '';
+    try {
+      currentVersion = fs.readFileSync(path.join(__dirname, '.version'), 'utf8').trim();
+    } catch(e) {
+      currentVersion = 'unknown';
+    }
+    res.json({ currentVersion });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Check for updates from GitHub
+const https = require('https');
+app.get('/api/check-update', requireAuth, requireRole(['admin']), (req, res) => {
+  const githubRepo = 'jcreglin/drum-register';
+  const githubBranch = 'master';
+  
+  try {
+    let currentVersion = '';
+    try {
+      currentVersion = fs.readFileSync(path.join(__dirname, '.version'), 'utf8').trim();
+    } catch(e) {
+      currentVersion = 'unknown';
+    }
+    
+    // Fetch latest commit from GitHub API
+    const options = {
+      hostname: 'api.github.com',
+      path: '/repos/' + githubRepo + '/commits/' + githubBranch,
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Cable-Drum-Register/1.0',
+        'Accept': 'application/vnd.github.v3+json'
+      }
+    };
+    
+    const req2 = https.get(options, (res2) => {
+      let data = '';
+      res2.on('data', chunk => data += chunk);
+      res2.on('end', () => {
+        try {
+          const commit = JSON.parse(data);
+          const latestVersion = commit.sha ? commit.sha.substring(0, 7) : '';
+          const latestDate = commit.commit ? new Date(commit.commit.author.date).toLocaleString() : '';
+          const updateAvailable = currentVersion && latestVersion && currentVersion !== latestVersion;
+          res.json({
+            currentVersion,
+            latestVersion,
+            latestDate,
+            updateAvailable,
+            repo: githubRepo,
+            branch: githubBranch,
+            redeployUrl: 'https://dashboard.hostinger.com/apps/secondary-apps/container-deployment?repo=https://github.com/' + githubRepo
+          });
+        } catch(e) {
+          res.status(500).json({ error: 'Failed to parse GitHub response' });
+        }
+      });
+    });
+    
+    req2.on('error', (e) => {
+      res.status(500).json({ error: 'Failed to connect to GitHub: ' + e.message });
+    });
+    
+    req2.end();
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // User management APIs
 app.get('/api/users', requireAuth, (req, res) => {
   const perms = getEffectivePermissions(req.user);
