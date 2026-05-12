@@ -57,6 +57,23 @@ const dbPath = process.env.DB_PATH || 'cabledrums.db';
 const db = new Database(dbPath);
 console.log('Database opened');
 
+const updateStatusFile = path.join(path.dirname(path.resolve(dbPath)), 'update-status.json');
+function readUpdateStatus() {
+  try {
+    return JSON.parse(fs.readFileSync(updateStatusFile, 'utf8'));
+  } catch(e) {
+    return null;
+  }
+}
+function writeUpdateStatus(status) {
+  try {
+    fs.mkdirSync(path.dirname(updateStatusFile), { recursive: true });
+    fs.writeFileSync(updateStatusFile, JSON.stringify(status, null, 2));
+  } catch(e) {
+    console.error('Failed to write update status:', e.message);
+  }
+}
+
 // Create tables one by one
 const tables = [
   `CREATE TABLE IF NOT EXISTS clients (id INTEGER PRIMARY KEY, name TEXT UNIQUE, archived INTEGER DEFAULT 0)`,
@@ -257,6 +274,131 @@ app.post('/api/change-password', requireAuth, (req, res) => {
     db.prepare('UPDATE users SET password = ?, must_change_password = 0 WHERE username = ?').run(newPassword, req.user.username);
     res.json({ success: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Debug: list env vars containing GITHUB (redacted)
+app.get('/api/debug-env', requireAuth, requireRole(['admin']), (req, res) => {
+  const envKeys = Object.keys(process.env).filter(k => k.toUpperCase().includes('GITHUB') || k.toUpperCase().includes('TOKEN'));
+  const envInfo = envKeys.map(k => ({ key: k, value: k.includes('TOKEN') ? '***' : process.env[k] }));
+  res.json({ envVars: envInfo, allEnvCount: Object.keys(process.env).length });
+});
+
+// Get current app version
+app.get('/api/version', requireAuth, (req, res) => {
+  try {
+    let currentVersion = '';
+    // Try .version file first (git commit hash)
+    try {
+      currentVersion = fs.readFileSync(path.join(__dirname, '.version'), 'utf8').trim();
+    } catch(e) {}
+    // Fallback to package.json version
+    if (!currentVersion || currentVersion === 'unknown') {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
+        currentVersion = pkg.version || 'unknown';
+      } catch(e) {
+        currentVersion = 'unknown';
+      }
+    }
+    res.json({ currentVersion, updateStatus: readUpdateStatus() });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Check for updates from GitHub
+const https = require('https');
+app.get('/api/check-update', requireAuth, requireRole(['admin']), (req, res) => {
+  const githubRepo = 'jcreglin/cable-drum-register-v2';
+  const githubBranch = 'master';
+  
+  try {
+    // Get current version from local package.json
+    let currentVersion = 'unknown';
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
+      currentVersion = pkg.version || 'unknown';
+    } catch(e) {}
+    
+    // Fetch package.json from GitHub API to get latest version
+    const options = {
+      hostname: 'api.github.com',
+      path: '/repos/' + githubRepo + '/contents/package.json?ref=' + githubBranch,
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Cable-Drum-Register/1.0',
+        'Accept': 'application/vnd.github.v3+json'
+      }
+    };
+    
+    const req2 = https.get(options, (res2) => {
+      let data = '';
+      res2.on('data', chunk => data += chunk);
+      res2.on('end', () => {
+        try {
+          const response = JSON.parse(data);
+          // API returns base64 encoded content
+          const content = Buffer.from(response.content, 'base64').toString('utf8');
+          const remotePkg = JSON.parse(content);
+          const latestVersion = remotePkg.version || 'unknown';
+          const latestDate = '';
+          
+          // Compare versions (simple string comparison works for semver)
+          const updateAvailable = currentVersion !== 'unknown' && latestVersion !== 'unknown' && currentVersion !== latestVersion;
+          
+          res.json({
+            currentVersion,
+            latestVersion,
+            latestDate,
+            updateAvailable,
+            repo: githubRepo,
+            branch: githubBranch,
+            redeployUrl: 'https://dashboard.hostinger.com/apps/secondary-apps/container-deployment?repo=https://github.com/' + githubRepo
+          });
+        } catch(e) {
+          res.status(500).json({ error: 'Failed to parse GitHub package.json' });
+        }
+      });
+    });
+    
+    req2.on('error', (e) => {
+      res.status(500).json({ error: 'Failed to connect to GitHub: ' + e.message });
+    });
+    
+    req2.end();
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Self-update the running container from GitHub and restart the app
+app.post('/api/trigger-update', requireAuth, requireRole(['admin']), (req, res) => {
+  try {
+    const { spawn } = require('child_process');
+    const scriptPath = path.join(__dirname, 'scripts', 'self-update.js');
+    writeUpdateStatus({
+      state: 'starting',
+      message: 'Preparing update...',
+      startedAt: new Date().toISOString(),
+      requestedBy: req.user?.username || 'unknown'
+    });
+    const child = spawn(process.execPath, [scriptPath], {
+      cwd: __dirname,
+      detached: true,
+      stdio: 'ignore',
+      env: {
+        ...process.env,
+        APP_DIR: __dirname,
+        PARENT_PID: String(process.pid),
+        UPDATE_STATUS_FILE: updateStatusFile
+      }
+    });
+    child.unref();
+    res.json({ success: true, message: 'Update started. The app will restart in a moment.' });
+  } catch (e) {
+    writeUpdateStatus({
+      state: 'failed',
+      message: 'Failed to start update: ' + e.message,
+      failedAt: new Date().toISOString()
+    });
+    res.status(500).json({ error: 'Failed to start self-update: ' + e.message });
+  }
 });
 
 // User management APIs

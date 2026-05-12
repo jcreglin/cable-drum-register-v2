@@ -255,6 +255,27 @@
     </div>
 
     <div id="settings" class="tab-content">
+      <div class="card" id="updateCard" style="display:none;">
+        <h2>🔄 Updates</h2>
+        <div id="updateStatus" style="margin:15px 0;">
+          <p><strong>Current Version:</strong> <span id="currentVersion">-</span></p>
+          <div id="updateProgress" style="display:none;margin:10px 0;padding:10px;border-radius:8px;background:#f5f7fb;color:#333;"></div>
+          <button onclick="checkForUpdates()">Check for Updates</button>
+        </div>
+        <div id="updateResult" style="display:none;margin:15px 0;padding:15px;border-radius:8px;">
+          <p><strong>Latest Version:</strong> <span id="latestVersion">-</span></p>
+          <p><strong>Latest Update:</strong> <span id="latestDate">-</span></p>
+          <div id="updateAvailableMsg" style="display:none;margin:10px 0;">
+            <p style="color:green;font-weight:bold;">✅ Update Available!</p>
+            <button onclick="triggerUpdate()" id="updateNowBtn" class="success">Update Now</button>
+            <p style="font-size:13px;color:#666;margin-top:10px;">Or manually redeploy using:</p>
+            <code id="redeployUrl" style="display:block;background:#f5f5f5;padding:10px;margin:5px 0;font-size:12px;word-break:break-all;"></code>
+          </div>
+          <div id="noUpdateMsg" style="display:none;margin:10px 0;">
+            <p style="color:#666;">✅ You are running the latest version.</p>
+          </div>
+        </div>
+      </div>
       <div class="card">
         <h2>Lookup Tables</h2>
         <div class="tabs" style="margin-top:15px;">
@@ -1279,6 +1300,12 @@
       event.target.classList.add('active'); document.getElementById(tab).classList.add('show');
       if (tab === 'drums') loadDrums();
       if (tab === 'settings') {
+        // Show update card only for admin
+        const updateCard = document.getElementById('updateCard');
+        if (updateCard) {
+          updateCard.style.display = currentUserRole === 'admin' ? 'block' : 'none';
+        }
+        loadCurrentVersion();
         const firstBtn = document.querySelector('#settings > .card > .tabs button');
         if (firstBtn) {
           firstBtn.classList.add('active');
@@ -1976,6 +2003,115 @@ function showDrumList() {
       if (settingsTab) settingsTab.style.display = (currentUserRole === 'admin' || currentUserRole === 'office' || p.canManageUsers) ? 'inline-block' : 'none';
       if (newAllocBtn) newAllocBtn.style.display = p.canAddAllocation ? 'inline-block' : 'none';
       if (actionsHeader) actionsHeader.style.display = (p.canEdit || p.canDelete) ? '' : 'none';
+    }
+
+    // Update checker functions
+    async function checkForUpdates() {
+      try {
+        const resultDiv = document.getElementById('updateResult');
+        const availableMsg = document.getElementById('updateAvailableMsg');
+        const noUpdateMsg = document.getElementById('noUpdateMsg');
+        const latestVerEl = document.getElementById('latestVersion');
+        const latestDateEl = document.getElementById('latestDate');
+        const redeployUrlEl = document.getElementById('redeployUrl');
+        
+        resultDiv.style.display = 'block';
+        availableMsg.style.display = 'none';
+        noUpdateMsg.style.display = 'none';
+        
+        const r = await call('/api/check-update');
+        if (!r.ok) throw new Error('Check failed');
+        const data = await r.json();
+        
+        latestVerEl.textContent = data.latestVersion || 'Unknown';
+        latestDateEl.textContent = data.updateAvailable ? (data.latestDate || 'Unknown') : 'None';
+        redeployUrlEl.textContent = data.redeployUrl || '';
+        
+        if (data.updateAvailable) {
+          availableMsg.style.display = 'block';
+        } else {
+          noUpdateMsg.style.display = 'block';
+        }
+      } catch(e) {
+        alert('Check failed: ' + e.message);
+      }
+    }
+
+    let updatePollTimer = null;
+
+    function renderUpdateProgress(updateStatus) {
+      const el = document.getElementById('updateProgress');
+      if (!el) return;
+      if (!updateStatus || !updateStatus.state) {
+        el.style.display = 'none';
+        el.textContent = '';
+        return;
+      }
+
+      const state = updateStatus.state;
+      const completionKey = updateStatus.completedAt || updateStatus.version || updateStatus.message || 'completed';
+      const seenCompletionKey = sessionStorage.getItem('seenUpdateCompletion');
+      if (state === 'completed' && seenCompletionKey === completionKey) {
+        el.style.display = 'none';
+        el.textContent = '';
+        return;
+      }
+
+      const prefix = state === 'completed' ? '✅' : state === 'failed' ? '❌' : '⏳';
+      el.style.display = 'block';
+      el.style.background = state === 'completed' ? '#e9f9ee' : state === 'failed' ? '#fdecec' : '#f5f7fb';
+      el.textContent = prefix + ' ' + (updateStatus.message || state);
+
+      if (state === 'completed') {
+        sessionStorage.setItem('seenUpdateCompletion', completionKey);
+      }
+    }
+
+    function startUpdatePolling() {
+      if (updatePollTimer) clearInterval(updatePollTimer);
+      updatePollTimer = setInterval(async () => {
+        try {
+          const r = await call('/api/version');
+          if (!r.ok) return;
+          const data = await r.json();
+          document.getElementById('currentVersion').textContent = data.currentVersion || 'Unknown';
+          renderUpdateProgress(data.updateStatus);
+          if (data.updateStatus && (data.updateStatus.state === 'completed' || data.updateStatus.state === 'failed')) {
+            clearInterval(updatePollTimer);
+            updatePollTimer = null;
+          }
+        } catch(e) {}
+      }, 3000);
+    }
+
+    async function loadCurrentVersion() {
+      try {
+        const r = await call('/api/version');
+        if (r.ok) {
+          const data = await r.json();
+          document.getElementById('currentVersion').textContent = data.currentVersion || 'Unknown';
+          renderUpdateProgress(data.updateStatus);
+          if (data.updateStatus && (data.updateStatus.state === 'starting' || data.updateStatus.state === 'running')) {
+            startUpdatePolling();
+          }
+        }
+      } catch(e) {}
+    }
+
+    async function triggerUpdate() {
+      if (!confirm('Trigger update? This will update and restart the app.')) return;
+      try {
+        const r = await call('/api/trigger-update', { method: 'POST' });
+        const data = await r.json();
+        if (r.ok) {
+          renderUpdateProgress({ state: 'starting', message: data.message || 'Update started...' });
+          startUpdatePolling();
+        } else {
+          alert('Update failed: ' + data.error);
+        }
+      } catch(e) {
+        alert('Update failed: ' + e.message);
+      }
     }
 
     async function exportDrums() {

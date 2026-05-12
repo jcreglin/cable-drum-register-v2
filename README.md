@@ -1,8 +1,8 @@
-# Cable Drum Register (Live)
+# Cable Drum Register (Development)
 
-Production repo for drums.astelecgroup.com.au.
+Development repo for new work before promoting to live.
 
 Workflow:
-- Do feature work in cable-drum-register-v2
-- Only promote tested changes into this repo when ready for production
-- Keep production-specific deployment settings here
+- Build and test changes here first
+- When approved, promote the changes into cable-drum-register
+- This repo may use non-production ports/settings
