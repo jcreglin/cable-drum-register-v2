@@ -2,7 +2,7 @@ services:
   cable-drum:
     build: .
     ports:
-      - "3041:3040"
+      - "3040:3040"
     environment:
       - PORT=3040
       - GITHUB_TOKEN=${GITHUB_TOKEN}
