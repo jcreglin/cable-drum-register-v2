@@ -168,6 +168,7 @@
         <button onclick="backupFull()" id="backupFullBtn" class="success small" style="display:none;">💾 Full Backup</button>
         <button onclick="document.getElementById('restoreFullFile').click()" id="restoreFullBtn" class="small" style="display:none;">📤 Full Restore</button>
         <input type="file" id="restoreFullFile" accept=".zip" style="display:none;" onchange="restoreFull()">
+        <button onclick="generateThumbnails()" id="genThumbBtn" class="small" style="display:none;">🖼️ Gen Thumbnails</button>
       </div>
     </div>
 
@@ -738,7 +739,7 @@
 
       document.getElementById('drumsList').innerHTML = drums.map(d => `
         <tr onclick="viewDrum(${d.id})" style="cursor:pointer;">
-          <td style="padding:6px 8px; width:52px;">${d.drum_photo ? `<img src="${getDrumPhotoUrl(d.drum_photo)}" loading="lazy" decoding="async" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid #ddd;display:block;">` : `<div style="width:36px;height:36px;border-radius:6px;border:1px solid #e5e7eb;background:#f8fafc;"></div>`}</td>
+          <td style="padding:6px 8px; width:52px;">${d.drum_photo ? `<img src="${getDrumPhotoUrl(d.drum_photo, true)}" loading="lazy" decoding="async" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid #ddd;display:block;">` : `<div style="width:36px;height:36px;border-radius:6px;border:1px solid #e5e7eb;background:#f8fafc;"></div>`}</td>
           <td>${d.drum_number || '-'}</td>
           <td onclick="event.stopPropagation()"><button class="small" style="background:${d.sign_status === 'Signed Out' ? '#ef4444' : '#22c55e'};color:${d.sign_status === 'Signed Out' ? '#fff' : '#fff'};" onclick="toggleSign(${d.id}, event)">${d.sign_status === 'Signed Out' ? 'Sign In' : 'Sign Out'}</button></td>
           <td>${d.client || '-'}</td><td>${d.drum_owner || '-'}</td>
@@ -1072,12 +1073,13 @@
     }
     
     // Get image URL - handles both base64 (old) and filename (new)
-    function getDrumPhotoUrl(photo) {
+    function getDrumPhotoUrl(photo, thumb = false) {
       if (!photo) return '';
       // If it's a data URL (base64), use it directly
       if (photo.startsWith('data:')) return photo;
-      // Otherwise assume it's a filename in /uploads
-      return '/uploads/' + photo;
+      // Use thumbnail path if requested (for list view), otherwise full
+      const prefix = thumb ? '/uploads/thumb/' : '/uploads/';
+      return prefix + photo;
     }
 
     // Normalize stored dates to YYYY-MM-DD for HTML date inputs
@@ -1976,6 +1978,7 @@ function showDrumList() {
               document.getElementById('restoreBtn').style.display = 'inline-block';
               document.getElementById('backupFullBtn').style.display = 'inline-block';
               document.getElementById('restoreFullBtn').style.display = 'inline-block';
+              document.getElementById('genThumbBtn').style.display = 'inline-block';
             }
             // Show users tab for admin or users with canManageUsers
             if (currentUserRole === 'admin' || currentUserPerms.canManageUsers) {
@@ -2284,6 +2287,26 @@ function showDrumList() {
         }
       } catch(e) { alert('Restore error: ' + e.message); }
       document.getElementById('restoreFullFile').value = '';
+    }
+
+    async function generateThumbnails() {
+      if (!confirm('Generate thumbnails for all existing drum photos?')) return;
+      try {
+        const btn = document.getElementById('genThumbBtn');
+        btn.disabled = true;
+        btn.textContent = '⏳ Generating...';
+        
+        const resp = await call('/api/admin/generate-thumbnails', { method: 'POST' });
+        const r = await resp.json();
+        if (r.success) {
+          alert(`Done! Generated ${r.generated} thumbnails, skipped ${r.skipped}.`);
+        } else {
+          alert('Error: ' + (r.error || 'Unknown error'));
+        }
+      } catch(e) { alert('Error: ' + e.message); }
+      const btn = document.getElementById('genThumbBtn');
+      btn.disabled = false;
+      btn.textContent = '🖼️ Gen Thumbnails';
     }
 
     async function masterDelete() {

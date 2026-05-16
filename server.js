@@ -3,6 +3,7 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
+const sharp = require('sharp');
 
 const app = express();
 const PORT = process.env.PORT || 3040;
@@ -48,6 +49,22 @@ app.use(express.json());
 app.use((req, res, next) => {
   console.log(req.method, req.url);
   next();
+});
+
+// Thumbnail route - BEFORE static handlers so it gets hit first
+app.get('/uploads/thumb/:filename', (req, res) => {
+  const filename = req.params.filename;
+  const thumbPath = path.join(uploadsDir, filename.replace(/\.[^.]+$/, '_thumb.jpg'));
+  const fullPath = path.join(uploadsDir, filename);
+  
+  if (fs.existsSync(thumbPath)) {
+    res.sendFile(thumbPath);
+  } else if (fs.existsSync(fullPath)) {
+    // Fallback to full image if thumbnail doesn't exist
+    res.sendFile(fullPath);
+  } else {
+    res.status(404).send('Not found');
+  }
 });
 
 app.use(express.static(__dirname));
@@ -281,6 +298,42 @@ app.get('/api/debug-env', requireAuth, requireRole(['admin']), (req, res) => {
   const envKeys = Object.keys(process.env).filter(k => k.toUpperCase().includes('GITHUB') || k.toUpperCase().includes('TOKEN'));
   const envInfo = envKeys.map(k => ({ key: k, value: k.includes('TOKEN') ? '***' : process.env[k] }));
   res.json({ envVars: envInfo, allEnvCount: Object.keys(process.env).length });
+});
+
+// Generate thumbnails for existing drum photos
+app.post('/api/admin/generate-thumbnails', requireAuth, requireRole(['admin']), async (req, res) => {
+  try {
+    const files = fs.readdirSync(uploadsDir).filter(f => /\.(jpg|jpeg|png|webp|gif)$/i.test(f) && !f.includes('_thumb'));
+    let generated = 0;
+    let skipped = 0;
+    
+    for (const file of files) {
+      const thumbName = file.replace(/\.[^.]+$/, '_thumb.jpg');
+      const thumbPath = path.join(uploadsDir, thumbName);
+      const fullPath = path.join(uploadsDir, file);
+      
+      if (!fs.existsSync(thumbPath)) {
+        try {
+          await sharp(fullPath)
+            .resize(150, 150, { fit: 'cover', position: 'center' })
+            .jpeg({ quality: 80 })
+            .toFile(thumbPath);
+          generated++;
+          console.log('Generated thumbnail:', thumbName);
+        } catch (err) {
+          console.error('Error generating thumbnail for', file, ':', err.message);
+          skipped++;
+        }
+      } else {
+        skipped++;
+      }
+    }
+    
+    res.json({ success: true, generated, skipped, total: files.length });
+  } catch(e) {
+    console.error('Generate thumbnails error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Get current app version
@@ -1056,7 +1109,7 @@ app.post('/api/master-delete', requireRole(['admin']), (req, res) => {
 // Upload drum photo endpoint
 app.post('/api/drums/photo', requireAuth, (req, res) => {
   try {
-    upload.single('photo')(req, res, (err) => {
+    upload.single('photo')(req, res, async (err) => {
       if (err) {
         console.error('Upload error:', err.message);
         return res.status(400).json({ error: err.message });
@@ -1064,6 +1117,21 @@ app.post('/api/drums/photo', requireAuth, (req, res) => {
       if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded' });
       }
+      
+      // Generate thumbnail for the uploaded image
+      try {
+        const originalPath = req.file.path;
+        const thumbPath = originalPath.replace(/\.[^.]+$/, '_thumb.jpg');
+        await sharp(originalPath)
+          .resize(150, 150, { fit: 'cover', position: 'center' })
+          .jpeg({ quality: 80 })
+          .toFile(thumbPath);
+        console.log('Generated thumbnail:', path.basename(thumbPath));
+      } catch (thumbErr) {
+        console.error('Thumbnail generation error:', thumbErr.message);
+        // Continue anyway - full image still works
+      }
+      
       // Return the filename so frontend can associate with drum
       res.json({ filename: req.file.filename, originalName: req.file.originalname });
     });
@@ -1078,12 +1146,15 @@ app.delete('/api/drums/photo/:filename', requireAuth, (req, res) => {
   try {
     const filename = req.params.filename;
     const filePath = path.join(uploadsDir, filename);
+    const thumbPath = path.join(uploadsDir, filename.replace(/\.[^.]+$/, '_thumb.jpg'));
+    
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
-      res.json({ success: true });
-    } else {
-      res.json({ success: true, message: 'File not found' });
     }
+    if (fs.existsSync(thumbPath)) {
+      fs.unlinkSync(thumbPath);
+    }
+    res.json({ success: true });
   } catch(e) {
     console.error('Photo delete error:', e.message);
     res.status(500).json({ error: e.message });
