@@ -2296,16 +2296,25 @@ function showDrumList() {
         btn.disabled = true;
         btn.textContent = '⏳ Generating...';
         
-        const resp = await call('/api/admin/generate-thumbnails', { method: 'POST' });
-        if (!resp.ok) {
-          const text = await resp.text();
-          if (text.startsWith('<')) {
-            alert('Update not available yet. Try Update Now first.');
-          } else {
-            alert('Error: ' + (text.error || text));
+        // First check if endpoint exists by calling it without actually generating
+        const checkResp = await fetch('/api/admin/generate-thumbnails', {
+          method: 'POST',
+          headers: { 'Authorization': token || '', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ _dryrun: true })
+        });
+        
+        if (!checkResp.ok) {
+          const txt = await checkResp.text();
+          if (txt.startsWith('<')) {
+            alert('The thumbnail feature requires an app update. Click Update Now first.');
+            btn.disabled = false;
+            btn.textContent = '🖼️ Gen Thumbnails';
+            return;
           }
-          return;
         }
+        
+        // Actually generate thumbnails
+        const resp = await call('/api/admin/generate-thumbnails', { method: 'POST' });
         const r = await resp.json();
         if (r.success) {
           alert(`Done! Generated ${r.generated} thumbnails, skipped ${r.skipped}.`);
