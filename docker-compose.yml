@@ -2,10 +2,11 @@ services:
   cable-drum:
     build: .
     ports:
-      - "3040:3040"
+      - "3041:3040"
     environment:
       - PORT=3040
       - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_REPO=jcreglin/cable-drum-register-v2
       - HOSTINGER_WEBHOOK_URL=${HOSTINGER_WEBHOOK_URL}
       - NEXTCLOUD_URL=https://cloud.astelecgroup.com.au
       - NEXTCLOUD_USER=chloe@astelecgroup.com.au
@@ -14,17 +15,6 @@ services:
     volumes:
       - drum_data:/app/data
       - drum_uploads:/app/uploads
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.drums.rule=Host(`drums.astelecgroup.com.au`)"
-      - "traefik.http.routers.drums.entrypoints=websecure"
-      - "traefik.http.routers.drums.tls=true"
-      - "traefik.http.routers.drums.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.drums-http.rule=Host(`drums.astelecgroup.com.au`)"
-      - "traefik.http.routers.drums-http.entrypoints=web"
-      - "traefik.http.routers.drums-http.middlewares=drums-redirect"
-      - "traefik.http.middlewares.drums-redirect.redirectscheme.scheme=https"
-      - "traefik.http.services.drums.loadbalancer.server.port=3040"
     restart: unless-stopped
 
 volumes:
