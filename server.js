@@ -441,9 +441,11 @@ app.post('/api/trigger-update', requireAuth, requireRole(['admin']), async (req,
         const backupPath = path.join(backupDir, `backup-${timestamp}.zip`);
         const zip = new AdmZip();
         
-        // Add database
-        const dbPath = path.join(__dirname, 'cabledrums.db');
-        if (fs.existsSync(dbPath)) zip.addLocalFile(dbPath);
+        // Add database (in data/ folder like original)
+        const dataDir = path.join(__dirname, 'data');
+        if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+        const dbPath = path.join(dataDir, 'cabledrums.db');
+        if (fs.existsSync(dbPath)) zip.addLocalFile(dbPath, 'data/cabledrums.db');
         
         // Add uploads folder
         const uploadsDir = path.join(__dirname, 'uploads');
@@ -452,7 +454,16 @@ app.post('/api/trigger-update', requireAuth, requireRole(['admin']), async (req,
         }
         
         zip.writeZip(backupPath);
-        console.log('Pre-update backup created:', backupPath);
+        console.log('Backup created:', backupPath);
+        
+        // Add meta.json
+        const meta = {
+          created: new Date().toISOString(),
+          version: require('./package.json').version,
+          type: 'pre-update-backup'
+        };
+        zip.addBuffer(Buffer.from(JSON.stringify(meta, null, 2)), 'meta.json');
+        zip.writeZip(backupPath);
         
         // Upload to Nextcloud if configured
         const ncUrl = process.env.NEXTCLOUD_URL;
