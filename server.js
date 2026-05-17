@@ -460,7 +460,7 @@ app.post('/api/trigger-update', requireAuth, requireRole(['admin']), async (req,
         
         if (ncUrl && ncUser && ncToken) {
           const fileName = path.basename(backupPath);
-          const remotePath = ncPath + '/' + fileName;
+          const remotePath = encodeURIComponent(ncPath) + '/' + encodeURIComponent(fileName);
           const ncHost = ncUrl.replace(/^https?:\/\//, '');
           const isHttps = ncUrl.startsWith('https');
           
@@ -469,7 +469,7 @@ app.post('/api/trigger-update', requireAuth, requireRole(['admin']), async (req,
               const auth = Buffer.from(ncUser + ':' + ncToken).toString('base64');
               const options = {
                 hostname: ncHost.split('/')[0],
-                path: '/remote.php/dav/files/' + ncUser + '/' + remotePath,
+                path: '/remote.php/dav/files/' + encodeURIComponent(ncUser) + '/' + remotePath,
                 method: 'PUT',
                 headers: {
                   'Authorization': 'Basic ' + auth,
