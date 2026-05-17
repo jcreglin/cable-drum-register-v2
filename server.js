@@ -462,7 +462,10 @@ app.post('/api/trigger-update', requireAuth, requireRole(['admin']), async (req,
           version: require('./package.json').version,
           type: 'pre-update-backup'
         };
-        zip.addBuffer(Buffer.from(JSON.stringify(meta, null, 2)), 'meta.json');
+        const metaPath = path.join(backupDir, 'meta.json');
+        fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+        zip.addLocalFile(metaPath, 'meta.json');
+        fs.unlinkSync(metaPath); // Clean up temp file
         zip.writeZip(backupPath);
         
         // Upload to Nextcloud if configured
