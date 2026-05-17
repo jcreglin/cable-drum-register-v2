@@ -2109,10 +2109,14 @@ function showDrumList() {
       if (!confirm('Trigger update? This will update and restart the app.')) return;
       try {
         const doBackup = document.getElementById('backupBeforeUpdate')?.checked;
+        let msg = 'Update started...';
+        if (doBackup) {
+          msg = 'Creating backup and uploading to Nextcloud... Update will start after backup completes.';
+        }
+        renderUpdateProgress({ state: 'starting', message: msg });
         const r = await call('/api/trigger-update' + (doBackup ? '?backup=1' : ''), { method: 'POST' });
         const data = await r.json();
         if (r.ok) {
-          renderUpdateProgress({ state: 'starting', message: data.message || 'Update started...' });
           startUpdatePolling();
         } else {
           alert('Update failed: ' + data.error);

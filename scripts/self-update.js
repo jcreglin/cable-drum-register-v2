@@ -120,7 +120,18 @@ function copyRecursive(src, dest) {
     });
 
     log('Update complete, restarting app');
-    if (PARENT_PID > 1) process.kill(PARENT_PID, 'SIGTERM');
+    // Try multiple restart methods
+    try {
+      if (PARENT_PID > 1) {
+        process.kill(PARENT_PID, 'SIGTERM');
+        log('Sent SIGTERM to parent PID');
+      }
+    } catch(e) { log('Could not kill parent: ' + e.message); }
+    // Fallback: use docker restart if available
+    try {
+      const { execSync } = require('child_process');
+      execSync('pkill -f "node server.js" || true', { stdio: 'ignore' });
+    } catch(e) { log('pkill failed: ' + e.message); }
   } catch (e) {
     const message = 'Update failed: ' + ((e && e.message) || e);
     writeStatus({ state: 'failed', message, failedAt: new Date().toISOString() });
