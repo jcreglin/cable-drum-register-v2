@@ -423,8 +423,25 @@ app.get('/api/check-update', requireAuth, requireRole(['admin']), (req, res) => 
 // Self-update the running container from GitHub and restart the app
 app.post('/api/trigger-update', requireAuth, requireRole(['admin']), (req, res) => {
   try {
+    const doBackup = req.query.backup === '1';
     const { spawn } = require('child_process');
     const scriptPath = path.join(__dirname, 'scripts', 'self-update.js');
+    
+    // Create backup before update if requested
+    if (doBackup) {
+      try {
+        const backupDir = path.join(__dirname, 'backups');
+        if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+        const timestamp = new Date().toISOString().slice(0, 10);
+        const backupPath = path.join(backupDir, `pre-update-${timestamp}.zip`);
+        const { spawn: backupSpawn } = require('child_process');
+        backupSpawn('zip', ['-r', backupPath, 'cabledrums.db', 'uploads'], { cwd: __dirname, stdio: 'ignore' });
+        console.log('Pre-update backup created:', backupPath);
+      } catch (backupErr) {
+        console.error('Pre-update backup failed:', backupErr.message);
+      }
+    }
+    
     writeUpdateStatus({
       state: 'starting',
       message: 'Preparing update...',
