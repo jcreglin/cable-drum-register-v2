@@ -430,6 +430,8 @@ app.post('/api/trigger-update', requireAuth, requireRole(['admin']), (req, res) 
     // Create backup before update if requested
     if (doBackup) {
       const AdmZip = require('adm-zip');
+      const https = require('https');
+      const http = require('http');
       try {
         const backupDir = path.join(__dirname, 'backups');
         if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
@@ -449,6 +451,52 @@ app.post('/api/trigger-update', requireAuth, requireRole(['admin']), (req, res) 
         
         zip.writeZip(backupPath);
         console.log('Pre-update backup created:', backupPath);
+        
+        // Upload to Nextcloud if configured
+        const ncUrl = process.env.NEXTCLOUD_URL;
+        const ncUser = process.env.NEXTCLOUD_USER;
+        const ncToken = process.env.NEXTCLOUD_TOKEN;
+        const ncPath = process.env.NEXTCLOUD_BACKUP_PATH || 'Cable Drum Register Backups';
+        
+        if (ncUrl && ncUser && ncToken) {
+          const fileName = path.basename(backupPath);
+          const remotePath = ncPath + '/' + fileName;
+          const ncHost = ncUrl.replace(/^https?:\/\//, '');
+          const isHttps = ncUrl.startsWith('https');
+          
+          const uploadToNextcloud = () => {
+            return new Promise((resolve, reject) => {
+              const auth = Buffer.from(ncUser + ':' + ncToken).toString('base64');
+              const options = {
+                hostname: ncHost.split('/')[0],
+                path: '/remote.php/dav/files/' + ncUser + '/' + remotePath,
+                method: 'PUT',
+                headers: {
+                  'Authorization': 'Basic ' + auth,
+                  'Content-Type': 'application/zip'
+                }
+              };
+              
+              const req = (isHttps ? https : http).request(options, (res) => {
+                if (res.statusCode >= 200 && res.statusCode < 300) {
+                  console.log('Backup uploaded to Nextcloud:', remotePath);
+                  resolve();
+                } else {
+                  reject(new Error('Nextcloud upload failed: ' + res.statusCode));
+                }
+              });
+              
+              req.on('error', reject);
+              fs.createReadStream(backupPath).pipe(req);
+            });
+          };
+          
+          try {
+            await uploadToNextcloud();
+          } catch (ncErr) {
+            console.error('Nextcloud upload failed:', ncErr.message);
+          }
+        }
       } catch (backupErr) {
         console.error('Pre-update backup failed:', backupErr.message);
       }
