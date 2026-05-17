@@ -435,8 +435,10 @@ app.post('/api/trigger-update', requireAuth, requireRole(['admin']), async (req,
       try {
         const backupDir = path.join(__dirname, 'backups');
         if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
-        const timestamp = new Date().toISOString().slice(0, 10);
-        const backupPath = path.join(backupDir, `pre-update-${timestamp}.zip`);
+        // Format: backup-YYYY-MM-DD-HHMMSS
+        const now = new Date();
+        const timestamp = now.toISOString().slice(0, 10) + '-' + now.toTimeString().slice(0, 8).replace(/:/g, '');
+        const backupPath = path.join(backupDir, `backup-${timestamp}.zip`);
         const zip = new AdmZip();
         
         // Add database
@@ -476,6 +478,8 @@ app.post('/api/trigger-update', requireAuth, requireRole(['admin']), async (req,
                   'Content-Type': 'application/zip'
                 }
               };
+              
+              console.log('Uploading backup to Nextcloud:', remotePath);
               
               const req = (isHttps ? https : http).request(options, (res) => {
                 if (res.statusCode >= 200 && res.statusCode < 300) {
