@@ -429,13 +429,25 @@ app.post('/api/trigger-update', requireAuth, requireRole(['admin']), (req, res) 
     
     // Create backup before update if requested
     if (doBackup) {
+      const AdmZip = require('adm-zip');
       try {
         const backupDir = path.join(__dirname, 'backups');
         if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
         const timestamp = new Date().toISOString().slice(0, 10);
         const backupPath = path.join(backupDir, `pre-update-${timestamp}.zip`);
-        const { spawn: backupSpawn } = require('child_process');
-        backupSpawn('zip', ['-r', backupPath, 'cabledrums.db', 'uploads'], { cwd: __dirname, stdio: 'ignore' });
+        const zip = new AdmZip();
+        
+        // Add database
+        const dbPath = path.join(__dirname, 'cabledrums.db');
+        if (fs.existsSync(dbPath)) zip.addLocalFile(dbPath);
+        
+        // Add uploads folder
+        const uploadsDir = path.join(__dirname, 'uploads');
+        if (fs.existsSync(uploadsDir)) {
+          zip.addLocalFolder(uploadsDir, 'uploads');
+        }
+        
+        zip.writeZip(backupPath);
         console.log('Pre-update backup created:', backupPath);
       } catch (backupErr) {
         console.error('Pre-update backup failed:', backupErr.message);
