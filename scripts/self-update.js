@@ -71,6 +71,35 @@ function copyRecursive(src, dest) {
   fs.copyFileSync(src, dest);
 }
 
+function restartApp() {
+  if (PARENT_PID > 1) {
+    try {
+      process.kill(PARENT_PID, 'SIGTERM');
+      log('Sent SIGTERM to parent PID ' + PARENT_PID);
+    } catch(e) {
+      log('Could not SIGTERM parent PID ' + PARENT_PID + ': ' + e.message);
+    }
+  }
+
+  const commands = [
+    ['pm2', ['restart', 'all']],
+    ['supervisorctl', ['restart', 'all']],
+    ['pkill', ['-TERM', '-f', 'node server.js']],
+    ['pkill', ['-TERM', '-f', 'server.js']]
+  ];
+
+  for (const [cmd, args] of commands) {
+    try {
+      const result = spawnSync(cmd, args, { stdio: 'pipe', encoding: 'utf8' });
+      log(`restart command ${cmd} ${args.join(' ')} exit=${result.status}`);
+      if (result.stdout) log(result.stdout.slice(-2000));
+      if (result.stderr) log(result.stderr.slice(-2000));
+    } catch(e) {
+      log(`restart command ${cmd} failed: ${e.message}`);
+    }
+  }
+}
+
 (async () => {
   try {
     log('Starting self-update');
@@ -121,21 +150,11 @@ function copyRecursive(src, dest) {
     });
 
     log('Update complete, restarting app');
-    // Try multiple restart methods
-    try {
-      if (PARENT_PID > 1) {
-        process.kill(PARENT_PID, 'SIGTERM');
-        log('Sent SIGTERM to parent PID');
-      }
-    } catch(e) { log('Could not kill parent: ' + e.message); }
-    // Fallback: use docker restart if available
-    try {
-      const { execSync } = require('child_process');
-      execSync('pkill -f "node server.js" || true', { stdio: 'ignore' });
-    } catch(e) { log('pkill failed: ' + e.message); }
+    restartApp();
   } catch (e) {
     const message = 'Update failed: ' + ((e && e.message) || e);
     writeStatus({ state: 'failed', message, failedAt: new Date().toISOString() });
     log('Update failed: ' + (e && e.stack || e));
   }
 })();
+
