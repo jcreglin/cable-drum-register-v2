@@ -6,7 +6,8 @@ const AdmZip = require('adm-zip');
 
 const APP_DIR = process.env.APP_DIR || '/app';
 const PARENT_PID = Number(process.env.PARENT_PID || '0');
-const REPO_ZIP_URL = process.env.REPO_ZIP_URL || 'https://codeload.github.com/jcreglin/cable-drum-register-v2/zip/refs/heads/master';
+const GITHUB_REPO = process.env.GITHUB_REPO || 'jcreglin/cable-drum-register-v2';
+const REPO_ZIP_URL = process.env.REPO_ZIP_URL || 'https://codeload.github.com/' + GITHUB_REPO + '/zip/refs/heads/master';
 const TMP_DIR = '/tmp/cable-drum-update';
 const ZIP_PATH = path.join(TMP_DIR, 'repo.zip');
 const LOG_PATH = '/tmp/self-update.log';
