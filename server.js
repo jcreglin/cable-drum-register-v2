@@ -360,7 +360,7 @@ app.get('/api/version', requireAuth, (req, res) => {
 // Check for updates from GitHub
 const https = require('https');
 app.get('/api/check-update', requireAuth, requireRole(['admin']), (req, res) => {
-  const githubRepo = process.env.GITHUB_REPO || 'jcreglin/cable-drum-register-v2';
+  const githubRepo = process.env.UPDATE_REPO || 'jcreglin/cable-drum-register-v2';
   const githubBranch = 'master';
   
   try {

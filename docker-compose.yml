@@ -7,6 +7,7 @@ services:
       - PORT=3040
       - GITHUB_TOKEN=${GITHUB_TOKEN}
       - GITHUB_REPO=jcreglin/cable-drum-register-v2
+      - UPDATE_REPO=jcreglin/cable-drum-register-v2
       - HOSTINGER_WEBHOOK_URL=${HOSTINGER_WEBHOOK_URL}
       - NEXTCLOUD_URL=https://cloud.astelecgroup.com.au
       - NEXTCLOUD_USER=chloe@astelecgroup.com.au
