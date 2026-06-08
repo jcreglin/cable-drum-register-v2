@@ -362,6 +362,9 @@ const https = require('https');
 app.get('/api/check-update', requireAuth, requireRole(['admin']), (req, res) => {
   const githubRepo = 'jcreglin/cable-drum-register-v2';
   const githubBranch = 'master';
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
   
   try {
     // Get current version from local package.json
@@ -403,6 +406,7 @@ app.get('/api/check-update', requireAuth, requireRole(['admin']), (req, res) => 
             latestDate,
             updateAvailable,
             repo: githubRepo,
+            updateSource: githubRepo,
             branch: githubBranch,
             redeployUrl: 'https://dashboard.hostinger.com/apps/secondary-apps/container-deployment?repo=https://github.com/' + githubRepo
           });
